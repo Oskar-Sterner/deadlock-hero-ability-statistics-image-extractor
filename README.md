@@ -192,9 +192,7 @@ uv build
 
 ### Performance Notes
 
-- Extraction typically takes 10-15 minutes for all heroes
-- Each hero requires ~30 seconds for 4 ability tooltip captures
-- Real-time preview available in web interface
+- Extraction typically takes around 4 minutes for all hero ability tooltips
 
 ## License
 

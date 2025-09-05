@@ -303,8 +303,8 @@ class HeroImageExtractor:
         if self.controller.should_stop():
             return False
             
-        await self.send_status("Waiting 2 seconds after loading screen...")
-        for _ in range(20):
+        await self.send_status("Waiting 1.5 seconds after loading screen...")
+        for _ in range(15):
             if self.controller.should_stop():
                 return False
             await asyncio.sleep(0.1)
@@ -312,8 +312,8 @@ class HeroImageExtractor:
         await self.send_status("Pressing left mouse button...")
         self.controller.click(960, 540)
         
-        await self.send_status("Waiting 3 seconds...")
-        for _ in range(30):
+        await self.send_status("Waiting 2 seconds...")
+        for _ in range(20):
             if self.controller.should_stop():
                 return False
             await asyncio.sleep(0.1)
@@ -328,7 +328,7 @@ class HeroImageExtractor:
                 
             self.controller.press_key("escape")
             
-            for _ in range(20):
+            for _ in range(15):
                 if self.controller.should_stop():
                     return False
                 await asyncio.sleep(0.1)
@@ -347,7 +347,7 @@ class HeroImageExtractor:
         await self.send_status("Clicking SWAP HERO button...")
         self.controller.click(273, 767)
         
-        for _ in range(30):
+        for _ in range(20):
             if self.controller.should_stop():
                 return False
             await asyncio.sleep(0.1)
@@ -412,7 +412,7 @@ class HeroImageExtractor:
         await self.send_status(f"Hovering over ability {ability_index + 1} for hero ID {hero_id}")
         self.controller.move_mouse(ability_pos[0], ability_pos[1])
         
-        for _ in range(10):
+        for _ in range(7):
             if self.controller.should_stop():
                 return False
             await asyncio.sleep(0.1)
@@ -449,11 +449,6 @@ class HeroImageExtractor:
         except Exception as e:
             await self.send_status(f"Failed to save image for hero ID {hero_id} ability {ability_index + 1}: {e}")
         
-        for _ in range(5):
-            if self.controller.should_stop():
-                return False
-            await asyncio.sleep(0.1)
-        
         return True
     
     async def extract_hero_abilities(self):
@@ -481,7 +476,7 @@ class HeroImageExtractor:
             await self.send_status(f"Hovering over hero portrait at {hero_pos}")
             self.controller.move_mouse(hero_pos[0], hero_pos[1])
             
-            for _ in range(20):
+            for _ in range(10):
                 if self.controller.should_stop():
                     return False
                 await asyncio.sleep(0.1)
@@ -489,12 +484,6 @@ class HeroImageExtractor:
             for ability_index in range(4):
                 if not await self.capture_ability_tooltip(hero_index, ability_index):
                     return False
-            
-            self.controller.move_mouse(hero_pos[0], hero_pos[1])
-            for _ in range(5):
-                if self.controller.should_stop():
-                    return False
-                await asyncio.sleep(0.1)
         
         await self.send_status("Hero ability extraction completed!")
         return True
