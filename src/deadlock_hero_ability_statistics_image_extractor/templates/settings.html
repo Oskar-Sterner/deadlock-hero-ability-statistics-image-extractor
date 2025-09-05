@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Settings - Deadlock Hero Ability Extractor</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Deadlock Hero Ability Extractor</h1>
+      <nav>
+        <a href="/" class="nav-link">Dashboard</a>
+        <a href="/settings" class="nav-link active">Settings</a>
+      </nav>
+    </header>
+
+    <main>
+      <div class="settings-container">
+        <h2>Configuration</h2>
+
+        <form method="POST" action="/settings" class="settings-form">
+          <div class="form-group">
+            <label for="game_path">Game Executable Path:</label>
+            <input
+              type="text"
+              id="game_path"
+              name="game_path"
+              value="{{ game_path }}"
+              required
+            />
+            <small
+              >Path to deadlock.exe (e.g.,
+              F:\SteamLibrary\steamapps\common\Deadlock\game\bin\win64\deadlock.exe)</small
+            >
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="save-btn">Save Settings</button>
+            <a href="/" class="cancel-btn">Cancel</a>
+          </div>
+        </form>
+
+        <div class="info-section">
+          <h3>Instructions</h3>
+          <ul>
+            <li>Set the correct path to your Deadlock executable</li>
+            <li>
+              Make sure the game is not running before starting extraction
+            </li>
+            <li>
+              The extractor will automatically launch the game and navigate to
+              hero selection
+            </li>
+            <li>Press Ctrl+Shift+Q to stop extraction at any time</li>
+            <li>Extracted images will appear in real-time on the dashboard</li>
+          </ul>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>

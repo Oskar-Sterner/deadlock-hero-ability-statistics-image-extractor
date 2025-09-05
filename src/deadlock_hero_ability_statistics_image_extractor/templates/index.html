@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Deadlock Hero Ability Tooltip Extractor</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Deadlock Hero Ability Tooltip Extractor</h1>
+      <nav>
+        <a href="/" class="nav-link active">Dashboard</a>
+        <a href="/settings" class="nav-link">Settings</a>
+      </nav>
+    </header>
+
+    <main>
+      <div class="control-panel">
+        <div class="status-section">
+          <h2>Extraction Status</h2>
+          <div
+            id="status-indicator"
+            class="status {% if extraction_running %}running{% else %}idle{% endif %}"
+          >
+            {% if extraction_running %}Running{% else %}Idle{% endif %}
+          </div>
+          <div class="control-buttons">
+            <button
+              id="start-btn"
+              {%
+              if
+              extraction_running
+              %}disabled{%
+              endif
+              %}
+            >
+              Start Extraction
+            </button>
+            <button
+              id="stop-btn"
+              {%
+              if
+              not
+              extraction_running
+              %}disabled{%
+              endif
+              %}
+            >
+              Stop Extraction
+            </button>
+          </div>
+        </div>
+
+        <div class="log-section">
+          <h3>Live Log</h3>
+          <div id="log-container">
+            <div id="log-content"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="images-section">
+        <h2>Extracted Hero Ability Tooltips</h2>
+        <div class="hero-status">
+          <p>
+            <strong>Data Source:</strong>
+            <span
+              class="{% if api_success %}api-source{% else %}fallback-source{% endif %}"
+            >
+              {% if api_success %}API ({{ hero_count }} heroes){% else
+              %}Fallback Data ({{ hero_count }} heroes){% endif %}
+            </span>
+          </p>
+          <p>
+            <small
+              >{% if api_success %}Successfully loaded from deadlock-api.com{%
+              else %}Using fallback data due to API unavailability{% endif
+              %}</small
+            >
+          </p>
+        </div>
+        <div class="hero-grid" id="hero-grid">
+          {% for hero in hero_data %}
+          <div class="hero-card" data-hero-id="{{ hero.id }}">
+            <h3>{{ hero.name }} (ID: {{ hero.id }})</h3>
+            <div class="abilities-row">
+              {% for ability_index in range(1, 5) %}
+              <div class="ability-slot" data-ability="{{ ability_index }}">
+                <div class="ability-label">Ability {{ ability_index }}</div>
+                {% if hero.id in extracted_images and ability_index in
+                extracted_images[hero.id].abilities %}
+                <img
+                  src="{{ extracted_images[hero.id].abilities[ability_index].path }}"
+                  alt="{{ hero.name }} Ability {{ ability_index }}"
+                  class="ability-image"
+                />
+                {% else %}
+                <div class="placeholder">Not extracted</div>
+                {% endif %}
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
