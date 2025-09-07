@@ -1,7 +1,7 @@
 [project]
 name = "deadlock-hero-ability-statistics-image-extractor"
 version = "0.1.0"
-description = "A Python tool to automatically launch Deadlock and extract hero ability images and stat images."
+description = "A cross-platform Python tool to automatically launch Deadlock and extract hero ability images and stat images on Windows and Linux."
 authors = [
     {name = "Oskar Sterner", email = "oskar.lr.sterner@gmail.com"}
 ]
@@ -12,6 +12,7 @@ dependencies = [
     "pillow>=10.0.0",
     "numpy>=1.24.0",
     "pynput>=1.7.6",
+    "pyautogui>=0.9.54",
     "fastapi>=0.104.0",
     "uvicorn[standard]>=0.24.0",
     "jinja2>=3.1.0",

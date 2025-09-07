@@ -6,11 +6,13 @@ import threading
 import asyncio
 import json
 import requests
+import platform
 from pathlib import Path
 from typing import Optional, List, Dict
-from PIL import Image, ImageGrab
+from PIL import Image
 import numpy as np
-from pynput import keyboard
+import pyautogui
+import pynput.keyboard as keyboard
 
 
 def fetch_hero_data():
@@ -74,11 +76,15 @@ def fetch_hero_data():
         return sorted_heroes, False
 
 
-class WindowsController:
+class CrossPlatformController:
     def __init__(self, websocket_callback=None):
         self.stop_flag = False
         self.hotkey_listener = None
         self.websocket_callback = websocket_callback
+        
+        pyautogui.FAILSAFE = True
+        pyautogui.PAUSE = 0.1
+        
         self.start_hotkey_listener()
     
     def start_hotkey_listener(self):
@@ -101,26 +107,26 @@ class WindowsController:
     def click(self, x, y, button="left", clicks=1):
         if self.stop_flag:
             return
-        os.system(f'powershell -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point({x}, {y}); Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 100"')
-        if button == "left":
-            os.system('powershell -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Application]::DoEvents(); Add-Type -Name MouseClick -Namespace Win32 -MemberDefinition \'[DllImport(\\\"user32.dll\\\")] public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, int dwExtraInfo);\'; [Win32.MouseClick]::mouse_event(0x02, 0, 0, 0, 0); [Win32.MouseClick]::mouse_event(0x04, 0, 0, 0, 0)"')
+        try:
+            pyautogui.click(x, y, clicks=clicks, button=button)
+        except Exception as e:
+            print(f"Click failed: {e}")
     
     def move_mouse(self, x, y):
         if self.stop_flag:
             return
-        os.system(f'powershell -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point({x}, {y})"')
+        try:
+            pyautogui.moveTo(x, y)
+        except Exception as e:
+            print(f"Mouse move failed: {e}")
     
     def press_key(self, key):
         if self.stop_flag:
             return
-        key_mappings = {
-            "space": " ",
-            "escape": "{ESC}",
-            "enter": "{ENTER}"
-        }
-        if key in key_mappings:
-            send_key = key_mappings[key]
-            os.system(f'powershell -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait(\\"{send_key}\\"); Start-Sleep -Milliseconds 100"')
+        try:
+            pyautogui.press(key)
+        except Exception as e:
+            print(f"Key press failed: {e}")
 
 
 class DeadlockLauncher:
@@ -135,11 +141,19 @@ class DeadlockLauncher:
             await self.websocket_callback({"type": "status", "message": message})
         
     def is_game_running(self) -> bool:
-        for proc in psutil.process_iter(['pid', 'name']):
+        system = platform.system()
+        
+        for proc in psutil.process_iter(['pid', 'name', 'exe']):
             try:
-                proc_name = proc.info['name'].lower()
-                if proc_name == 'deadlock.exe':
-                    return True
+                proc_name = proc.info['name']
+                proc_exe = proc.info.get('exe', '')
+                
+                if system == "Windows":
+                    if proc_name.lower() == 'deadlock.exe' and proc_exe and 'deadlock' in proc_exe.lower():
+                        return True
+                elif system == "Linux":
+                    if proc_name == 'deadlock' and proc_exe and 'deadlock' in proc_exe.lower():
+                        return True
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
         return False
@@ -157,16 +171,19 @@ class DeadlockLauncher:
     async def wait_for_main_menu(self, timeout: int = 120) -> bool:
         start_time = time.time()
         while time.time() - start_time < timeout:
-            screenshot = ImageGrab.grab()
-            screenshot_np = np.array(screenshot)
-            
-            non_black_pixels = np.sum(screenshot_np > 30)
-            total_pixels = screenshot_np.size
-            non_black_ratio = non_black_pixels / total_pixels
-            
-            if non_black_ratio > 0.3:
-                await self.send_status("Main menu detected!")
-                return True
+            try:
+                screenshot = pyautogui.screenshot()
+                screenshot_np = np.array(screenshot)
+                
+                non_black_pixels = np.sum(screenshot_np > 30)
+                total_pixels = screenshot_np.size
+                non_black_ratio = non_black_pixels / total_pixels
+                
+                if non_black_ratio > 0.3:
+                    await self.send_status("Main menu detected!")
+                    return True
+            except Exception as e:
+                print(f"Screenshot failed: {e}")
             
             time.sleep(2)
         return False
@@ -177,17 +194,31 @@ class DeadlockLauncher:
             return False
             
         if self.is_game_running():
-            await self.send_status("Deadlock is already running")
-            return True
+            await self.send_status("Found existing Deadlock process. Closing it first...")
+            self.close_game()
+            await asyncio.sleep(3)
+            
+            if self.is_game_running():
+                await self.send_status("Failed to close existing Deadlock process. Please close it manually.")
+                return False
             
         try:
             await self.send_status(f"Launching Deadlock from: {self.game_path}")
-            self.process = subprocess.Popen(
-                str(self.game_path),
-                cwd=self.game_path.parent,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
+            
+            if platform.system() == "Windows":
+                self.process = subprocess.Popen(
+                    str(self.game_path),
+                    cwd=self.game_path.parent,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+            else:
+                self.process = subprocess.Popen(
+                    [str(self.game_path)],
+                    cwd=self.game_path.parent,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
             
             await self.send_status("Waiting for game to load...")
             if await self.wait_for_game_window():
@@ -207,14 +238,29 @@ class DeadlockLauncher:
             return False
     
     def close_game(self):
-        for proc in psutil.process_iter(['pid', 'name']):
+        system = platform.system()
+        
+        for proc in psutil.process_iter(['pid', 'name', 'exe']):
             try:
-                if proc.info['name'].lower() == 'deadlock.exe':
+                proc_name = proc.info['name']
+                proc_exe = proc.info.get('exe', '')
+                
+                should_terminate = False
+                
+                if system == "Windows":
+                    if proc_name.lower() == 'deadlock.exe' and 'deadlock' in proc_exe.lower():
+                        should_terminate = True
+                elif system == "Linux":
+                    if proc_name == 'deadlock' and 'deadlock' in proc_exe.lower():
+                        should_terminate = True
+                
+                if should_terminate:
                     proc.terminate()
                     proc.wait(timeout=10)
                     print("Game closed successfully")
                     return
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
+                    
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired, psutil.ZombieProcess):
                 continue
 
 
@@ -228,7 +274,7 @@ class HeroImageExtractor:
         self.abilities_dir.mkdir(exist_ok=True)
         self.stats_dir.mkdir(exist_ok=True)
         
-        self.controller = WindowsController(websocket_callback)
+        self.controller = CrossPlatformController(websocket_callback)
         self.websocket_callback = websocket_callback
         
         try:
@@ -289,15 +335,19 @@ class HeroImageExtractor:
             })
         
     def is_settings_menu_open(self):
-        screenshot = ImageGrab.grab()
-        screenshot_np = np.array(screenshot)
-        
-        x, y = 162, 917
-        if y < screenshot_np.shape[0] and x < screenshot_np.shape[1]:
-            pixel = screenshot_np[y, x]
-            red_value = pixel[0]
-            return red_value > 100
-        return False
+        try:
+            screenshot = pyautogui.screenshot()
+            screenshot_np = np.array(screenshot)
+            
+            x, y = 162, 917
+            if y < screenshot_np.shape[0] and x < screenshot_np.shape[1]:
+                pixel = screenshot_np[y, x]
+                red_value = pixel[0]
+                return red_value > 100
+            return False
+        except Exception as e:
+            print(f"Settings menu detection failed: {e}")
+            return False
     
     async def navigate_to_hero_selection(self):
         if self.controller.should_stop():
@@ -310,7 +360,8 @@ class HeroImageExtractor:
             await asyncio.sleep(0.1)
         
         await self.send_status("Pressing left mouse button...")
-        self.controller.click(960, 540)
+        screen_width, screen_height = pyautogui.size()
+        self.controller.click(screen_width // 2, screen_height // 2)
         
         await self.send_status("Waiting 2 seconds...")
         for _ in range(20):
@@ -417,27 +468,27 @@ class HeroImageExtractor:
                 return False
             await asyncio.sleep(0.1)
         
-        screenshot = ImageGrab.grab()
-        screenshot_np = np.array(screenshot)
-        
-        left_x = tooltip_info["left"]
-        right_x = tooltip_info["right"]
-        bottom_y = tooltip_info["bottom"]
-        
-        top_y = self.find_tooltip_top(left_x, bottom_y, screenshot_np)
-        
-        screen_width, screen_height = screenshot.size
-        
-        left_x = max(0, min(left_x, screen_width - 1))
-        right_x = max(left_x + 1, min(right_x, screen_width))
-        top_y = max(0, min(top_y, screen_height - 1))
-        bottom_y = max(top_y + 1, min(bottom_y, screen_height))
-        
-        if right_x <= left_x or bottom_y <= top_y:
-            await self.send_status(f"Invalid crop dimensions for hero ID {hero_id} ability {ability_index + 1}")
-            return True
-        
         try:
+            screenshot = pyautogui.screenshot()
+            screenshot_np = np.array(screenshot)
+            
+            left_x = tooltip_info["left"]
+            right_x = tooltip_info["right"]
+            bottom_y = tooltip_info["bottom"]
+            
+            top_y = self.find_tooltip_top(left_x, bottom_y, screenshot_np)
+            
+            screen_width, screen_height = pyautogui.size()
+            
+            left_x = max(0, min(left_x, screen_width - 1))
+            right_x = max(left_x + 1, min(right_x, screen_width))
+            top_y = max(0, min(top_y, screen_height - 1))
+            bottom_y = max(top_y + 1, min(bottom_y, screen_height))
+            
+            if right_x <= left_x or bottom_y <= top_y:
+                await self.send_status(f"Invalid crop dimensions for hero ID {hero_id} ability {ability_index + 1}")
+                return True
+            
             tooltip_region = screenshot.crop((left_x, top_y, right_x, bottom_y))
             
             filename = f"hero{hero_id}_ability_{ability_index + 1}.png"
@@ -496,8 +547,35 @@ class HeroImageExtractor:
         self.controller.cleanup()
 
 
+def get_default_game_paths():
+    system = platform.system()
+    paths = []
+    
+    if system == "Windows":
+        common_paths = [
+            r"C:\Program Files (x86)\Steam\steamapps\common\Deadlock\game\bin\win64\deadlock.exe",
+            r"D:\Steam\steamapps\common\Deadlock\game\bin\win64\deadlock.exe",
+            r"F:\SteamLibrary\steamapps\common\Deadlock\game\bin\win64\deadlock.exe"
+        ]
+        paths.extend(common_paths)
+    elif system == "Linux":
+        home = Path.home()
+        common_paths = [
+            home / ".steam/steam/steamapps/common/Deadlock/game/bin/linuxsteamrt64/deadlock",
+            home / ".local/share/Steam/steamapps/common/Deadlock/game/bin/linuxsteamrt64/deadlock",
+            "/usr/games/steam/steamapps/common/Deadlock/game/bin/linuxsteamrt64/deadlock"
+        ]
+        paths.extend([str(p) for p in common_paths])
+    
+    for path in paths:
+        if Path(path).exists():
+            return path
+    
+    return paths[0] if paths else ""
+
+
 async def main_cli():
-    game_path = r"F:\SteamLibrary\steamapps\common\Deadlock\game\bin\win64\deadlock.exe"
+    game_path = get_default_game_paths()
     
     launcher = DeadlockLauncher(game_path)
     extractor = HeroImageExtractor()

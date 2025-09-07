@@ -2,6 +2,7 @@ import asyncio
 import json
 import threading
 import requests
+import platform
 from pathlib import Path
 from typing import Dict, List
 
@@ -11,7 +12,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .main import DeadlockLauncher, HeroImageExtractor
+from .main import DeadlockLauncher, HeroImageExtractor, get_default_game_paths
 
 
 app = FastAPI()
@@ -46,7 +47,7 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 settings = {
-    "game_path": r"F:\SteamLibrary\steamapps\common\Deadlock\game\bin\win64\deadlock.exe"
+    "game_path": get_default_game_paths()
 }
 
 extraction_state = {
@@ -140,13 +141,16 @@ async def dashboard(request: Request):
                     "path": f"/images/abilities/{filename}"
                 }
     
+    current_platform = platform.system()
+    
     return templates.TemplateResponse("index.html", {
         "request": request,
         "hero_data": hero_data,
         "extracted_images": extracted_images,
         "extraction_running": extraction_state["running"],
         "api_success": api_success,
-        "hero_count": len(hero_data)
+        "hero_count": len(hero_data),
+        "platform": current_platform
     })
 
 @app.get("/api/hero-data")
@@ -155,14 +159,34 @@ async def get_hero_data():
         "heroes": hero_data,
         "api_success": api_success,
         "count": len(hero_data),
-        "source": "API" if api_success else "Fallback"
+        "source": "API" if api_success else "Fallback",
+        "platform": platform.system()
     }
 
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
+    current_platform = platform.system()
+    default_paths = []
+    
+    if current_platform == "Windows":
+        default_paths = [
+            r"C:\Program Files (x86)\Steam\steamapps\common\Deadlock\game\bin\win64\deadlock.exe",
+            r"D:\Steam\steamapps\common\Deadlock\game\bin\win64\deadlock.exe",
+            r"F:\SteamLibrary\steamapps\common\Deadlock\game\bin\win64\deadlock.exe"
+        ]
+    elif current_platform == "Linux":
+        home = str(Path.home())
+        default_paths = [
+            f"{home}/.steam/steam/steamapps/common/Deadlock/game/bin/linuxsteamrt64/deadlock",
+            f"{home}/.local/share/Steam/steamapps/common/Deadlock/game/bin/linuxsteamrt64/deadlock",
+            "/usr/games/steam/steamapps/common/Deadlock/game/bin/linuxsteamrt64/deadlock"
+        ]
+    
     return templates.TemplateResponse("settings.html", {
         "request": request,
-        "game_path": settings["game_path"]
+        "game_path": settings["game_path"],
+        "platform": current_platform,
+        "default_paths": default_paths
     })
 
 @app.post("/settings")

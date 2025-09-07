@@ -10,6 +10,7 @@ A Python tool with both CLI and web interfaces to automatically launch Deadlock 
 
 ## Features
 
+- **Cross-Platform Support**: Works on Windows and Linux systems
 - **Dual Interface**: Command-line tool and modern web dashboard
 - **Automatic Game Integration**: Launches Deadlock and navigates to hero selection
 - **Smart Image Extraction**: Intelligent tooltip detection and image capture
@@ -22,7 +23,7 @@ A Python tool with both CLI and web interfaces to automatically launch Deadlock 
 ## Prerequisites
 
 - Python 3.9+
-- Deadlock game installed on Windows
+- Deadlock game installed on Windows or Linux
 - 1920x1080 screen resolution recommended
 - uv package manager
 
@@ -77,8 +78,16 @@ Navigate to the Settings page in the web interface and update the game executabl
 
 Update the game path in your settings or directly in the code:
 
+**Windows:**
+
 ```python
 game_path = r"YOUR_STEAM_PATH\steamapps\common\Deadlock\game\bin\win64\deadlock.exe"
+```
+
+**Linux:**
+
+```python
+game_path = "/YOUR_STEAM_PATH/steamapps/common/Deadlock/game/bin/linuxsteamrt64/deadlock"
 ```
 
 ## Output Structure
@@ -137,6 +146,22 @@ The tool integrates with deadlock-api.com to fetch the latest hero data:
 - Supports dynamic hero additions/changes
 - Maintains consistent hero ID mapping
 
+## Platform Support
+
+### Windows
+
+- Game executable: `deadlock.exe`
+- Steam path: `C:\Program Files (x86)\Steam\steamapps\common\Deadlock\game\bin\win64\deadlock.exe`
+- Process monitoring via exact executable name matching
+
+### Linux
+
+- Game executable: `deadlock`
+- Steam paths:
+  - `~/.steam/steam/steamapps/common/Deadlock/game/bin/linuxsteamrt64/deadlock`
+  - `~/.local/share/Steam/steamapps/common/Deadlock/game/bin/linuxsteamrt64/deadlock`
+- Process monitoring via exact executable name matching
+
 ## Development
 
 ### Install development dependencies
@@ -167,6 +192,7 @@ uv build
 - **numpy**: Numerical operations for image analysis
 - **pynput**: Keyboard hotkey detection
 - **requests**: API integration for hero data
+- **pyautogui**: Cross-platform screen automation
 
 ### Web Interface
 
@@ -189,10 +215,12 @@ uv build
 - Verify screen resolution is 1920x1080 for accurate coordinates
 - Check game path in settings if launch fails
 - Use web interface for better error visibility
+- On Linux, ensure proper display server access for screen automation
 
 ### Performance Notes
 
 - Extraction typically takes around 4 minutes for all hero ability tooltips
+- Cross-platform process detection ensures reliable game state monitoring
 
 ## License
 
