@@ -15,6 +15,12 @@ import pyautogui
 import pynput.keyboard as keyboard
 
 
+def get_sort_name(name):
+    if name.startswith("The "):
+        return name[4:]
+    return name
+
+
 def fetch_hero_data():
     try:
         print("Fetching hero data from API...")
@@ -25,7 +31,7 @@ def fetch_hero_data():
         
         filtered_heroes = [{"id": hero["id"], "name": hero["name"]} for hero in heroes]
         
-        sorted_heroes = sorted(filtered_heroes, key=lambda x: x["name"])
+        sorted_heroes = sorted(filtered_heroes, key=lambda x: get_sort_name(x["name"]))
         
         print(f"Successfully fetched {len(sorted_heroes)} heroes from API")
         print(f"First 3 heroes: {[h['name'] for h in sorted_heroes[:3]]}")
@@ -40,6 +46,7 @@ def fetch_hero_data():
             {"id": 15, "name": "Bebop"},
             {"id": 72, "name": "Billy"},
             {"id": 16, "name": "Calico"},
+            {"id": 69, "name": "The Doorman"},
             {"id": 64, "name": "Drifter"},
             {"id": 11, "name": "Dynamo"},
             {"id": 17, "name": "Grey Talon"},
@@ -60,7 +67,6 @@ def fetch_hero_data():
             {"id": 2, "name": "Seven"},
             {"id": 19, "name": "Shiv"},
             {"id": 60, "name": "Sinclair"},
-            {"id": 69, "name": "The Doorman"},
             {"id": 66, "name": "Victor"},
             {"id": 3, "name": "Vindicta"},
             {"id": 35, "name": "Viscous"},
@@ -70,7 +76,7 @@ def fetch_hero_data():
             {"id": 27, "name": "Yamato"}
         ]
         
-        sorted_heroes = sorted(fallback_heroes, key=lambda x: x["name"])
+        sorted_heroes = sorted(fallback_heroes, key=lambda x: get_sort_name(x["name"]))
         print(f"Using {len(sorted_heroes)} fallback heroes")
         
         return sorted_heroes, False
@@ -296,7 +302,7 @@ class HeroImageExtractor:
                 {"id": 15, "name": "Bebop"},
                 {"id": 72, "name": "Billy"}
             ]
-            self.hero_data = sorted(fallback_heroes, key=lambda x: x["name"])
+            self.hero_data = sorted(fallback_heroes, key=lambda x: get_sort_name(x["name"]))
             self.api_success = False
             self.hero_ids = [hero["id"] for hero in self.hero_data]
         
