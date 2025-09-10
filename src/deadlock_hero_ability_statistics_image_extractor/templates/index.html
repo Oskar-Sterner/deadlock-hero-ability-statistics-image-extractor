@@ -25,6 +25,23 @@
           >
             {% if extraction_running %}Running{% else %}Idle{% endif %}
           </div>
+
+          <div class="extraction-options">
+            <h3>Extraction Options</h3>
+            <div class="checkbox-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="extract-abilities" checked />
+                <span class="checkmark"></span>
+                Extract Abilities
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="extract-stats" />
+                <span class="checkmark"></span>
+                Extract Statistics
+              </label>
+            </div>
+          </div>
+
           <div class="control-buttons">
             <button
               id="start-btn"
@@ -61,7 +78,7 @@
       </div>
 
       <div class="images-section">
-        <h2>Extracted Hero Ability Tooltips</h2>
+        <h2>Extracted Hero Data</h2>
         <div class="hero-status">
           <p>
             <strong>Data Source:</strong>
@@ -84,22 +101,50 @@
           {% for hero in hero_data %}
           <div class="hero-card" data-hero-id="{{ hero.id }}">
             <h3>{{ hero.name }} (ID: {{ hero.id }})</h3>
-            <div class="abilities-row">
-              {% for ability_index in range(1, 5) %}
-              <div class="ability-slot" data-ability="{{ ability_index }}">
-                <div class="ability-label">Ability {{ ability_index }}</div>
-                {% if hero.id in extracted_images and ability_index in
-                extracted_images[hero.id].abilities %}
-                <img
-                  src="{{ extracted_images[hero.id].abilities[ability_index].path }}"
-                  alt="{{ hero.name }} Ability {{ ability_index }}"
-                  class="ability-image"
-                />
-                {% else %}
-                <div class="placeholder">Not extracted</div>
-                {% endif %}
+
+            <div class="hero-section">
+              <h4>Abilities</h4>
+              <div class="abilities-row">
+                {% for ability_index in range(1, 5) %}
+                <div class="ability-slot" data-ability="{{ ability_index }}">
+                  <div class="ability-label">Ability {{ ability_index }}</div>
+                  {% if hero.id in extracted_images and ability_index in
+                  extracted_images[hero.id].abilities %}
+                  <img
+                    src="{{ extracted_images[hero.id].abilities[ability_index].path }}"
+                    alt="{{ hero.name }} Ability {{ ability_index }}"
+                    class="ability-image"
+                  />
+                  {% else %}
+                  <div class="placeholder">Not extracted</div>
+                  {% endif %}
+                </div>
+                {% endfor %}
               </div>
-              {% endfor %}
+            </div>
+
+            <div class="hero-section">
+              <h4>Statistics</h4>
+              <div class="stats-row">
+                {% set stat_names = ["weapon", "vitality", "spirit"] %} {% for
+                stat_index in range(3) %}
+                <div class="stat-slot" data-stat="{{ stat_index }}">
+                  <div class="stat-label">
+                    {{ stat_names[stat_index].title() }}
+                  </div>
+                  {% if hero.id in extracted_images and stat_index in
+                  extracted_images[hero.id].stats %}
+                  <img
+                    src="{{ extracted_images[hero.id].stats[stat_index].path }}"
+                    alt="{{ hero.name }} {{ stat_names[stat_index] }} stat"
+                    class="stat-image"
+                  />
+                  {% else %}
+                  <div class="placeholder">Not extracted</div>
+                  {% endif %}
+                </div>
+                {% endfor %}
+              </div>
             </div>
           </div>
           {% endfor %}

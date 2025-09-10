@@ -10,6 +10,9 @@ class ExtractionDashboard {
     this.statusIndicator = document.getElementById("status-indicator");
     this.logContent = document.getElementById("log-content");
     this.heroGrid = document.getElementById("hero-grid");
+    this.extractAbilitiesCheckbox =
+      document.getElementById("extract-abilities");
+    this.extractStatsCheckbox = document.getElementById("extract-stats");
 
     this.initializeWebSocket();
     this.bindEvents();
@@ -57,11 +60,23 @@ class ExtractionDashboard {
 
   async startExtraction() {
     try {
+      const extractAbilities = this.extractAbilitiesCheckbox.checked;
+      const extractStats = this.extractStatsCheckbox.checked;
+
+      if (!extractAbilities && !extractStats) {
+        this.addLogEntry("Error: Please select at least one extraction option");
+        return;
+      }
+
       const response = await fetch("/start-extraction", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
+        body: JSON.stringify({
+          extract_abilities: extractAbilities,
+          extract_stats: extractStats,
+        }),
       });
 
       const result = await response.json();
@@ -104,11 +119,15 @@ class ExtractionDashboard {
       this.statusIndicator.className = "status running";
       this.startBtn.disabled = true;
       this.stopBtn.disabled = false;
+      this.extractAbilitiesCheckbox.disabled = true;
+      this.extractStatsCheckbox.disabled = true;
     } else {
       this.statusIndicator.textContent = "Idle";
       this.statusIndicator.className = "status idle";
       this.startBtn.disabled = false;
       this.stopBtn.disabled = true;
+      this.extractAbilitiesCheckbox.disabled = false;
+      this.extractStatsCheckbox.disabled = false;
     }
   }
 
@@ -166,6 +185,38 @@ class ExtractionDashboard {
     }
   }
 
+  updateHeroStatImage(heroId, statIndex, filename) {
+    const heroCard = document.querySelector(`[data-hero-id="${heroId}"]`);
+    if (!heroCard) return;
+
+    const statSlot = heroCard.querySelector(`[data-stat="${statIndex}"]`);
+    if (!statSlot) return;
+
+    const existingImage = statSlot.querySelector(".stat-image");
+    const placeholder = statSlot.querySelector(".placeholder");
+
+    if (existingImage) {
+      existingImage.src = `/images/stats/${filename}`;
+    } else {
+      if (placeholder) {
+        placeholder.remove();
+      }
+
+      const img = document.createElement("img");
+      img.src = `/images/stats/${filename}`;
+      img.alt = `Hero ${heroId} Stat ${statIndex}`;
+      img.className = "stat-image";
+
+      img.onload = () => {
+        statSlot.style.animation = "none";
+        statSlot.offsetHeight;
+        statSlot.style.animation = "pulse 0.5s ease-in-out";
+      };
+
+      statSlot.appendChild(img);
+    }
+  }
+
   handleMessage(data) {
     switch (data.type) {
       case "status":
@@ -180,6 +231,14 @@ class ExtractionDashboard {
         );
         this.addLogEntry(
           `Updated Hero ${data.hero_id} Ability ${data.ability_index + 1}`
+        );
+        break;
+
+      case "stat_update":
+        this.updateHeroStatImage(data.hero_id, data.stat_index, data.filename);
+        const statNames = ["Weapon", "Vitality", "Spirit"];
+        this.addLogEntry(
+          `Updated Hero ${data.hero_id} ${statNames[data.stat_index]} Stat`
         );
         break;
 

@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .main import DeadlockLauncher, HeroImageExtractor, get_default_game_paths
+from .main import DeadlockLauncher, HeroImageExtractor, ExtractionOptions, get_default_game_paths
 
 
 app = FastAPI()
@@ -126,6 +126,7 @@ hero_data, api_success = fetch_hero_data_web()
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
     abilities_dir = images_dir / "abilities"
+    stats_dir = images_dir / "stats"
     extracted_images = {}
     
     for hero in hero_data:
@@ -133,7 +134,8 @@ async def dashboard(request: Request):
         hero_name = hero["name"]
         extracted_images[hero_id] = {
             "name": hero_name,
-            "abilities": {}
+            "abilities": {},
+            "stats": {}
         }
         
         for ability_index in range(1, 5):
@@ -144,6 +146,18 @@ async def dashboard(request: Request):
                 extracted_images[hero_id]["abilities"][ability_index] = {
                     "filename": filename,
                     "path": f"/images/abilities/{filename}"
+                }
+
+        stat_names = ["weapon", "vitality", "spirit"]
+        for stat_index, stat_name in enumerate(stat_names):
+            filename = f"hero{hero_id}_{stat_name}_stat.png"
+            filepath = stats_dir / filename
+            
+            if filepath.exists():
+                extracted_images[hero_id]["stats"][stat_index] = {
+                    "filename": filename,
+                    "path": f"/images/stats/{filename}",
+                    "name": stat_name
                 }
     
     current_platform = platform.system()
@@ -200,9 +214,15 @@ async def update_settings(game_path: str = Form(...)):
     return RedirectResponse(url="/", status_code=303)
 
 @app.post("/start-extraction")
-async def start_extraction():
+async def start_extraction(request: Request):
     if extraction_state["running"]:
         return {"status": "error", "message": "Extraction already running"}
+    
+    body = await request.json()
+    extract_abilities = body.get("extract_abilities", True)
+    extract_stats = body.get("extract_stats", False)
+    
+    options = ExtractionOptions(extract_abilities, extract_stats)
     
     extraction_state["running"] = True
     
@@ -212,7 +232,7 @@ async def start_extraction():
     async def run_extraction():
         try:
             launcher = DeadlockLauncher(settings["game_path"], websocket_callback)
-            extractor = HeroImageExtractor(websocket_callback)
+            extractor = HeroImageExtractor(websocket_callback=websocket_callback, use_detection=True, debug=True)
             
             extraction_state["launcher"] = launcher
             extraction_state["extractor"] = extractor
@@ -220,10 +240,8 @@ async def start_extraction():
             if await launcher.launch_game():
                 await websocket_callback({"type": "status", "message": "Game is ready for image extraction"})
                 
-                if not await extractor.extract_hero_abilities():
+                if not await extractor.extract_hero_data(options):
                     await websocket_callback({"type": "status", "message": "Extraction stopped by user"})
-                else:
-                    await extractor.extract_hero_stats()
                     
             else:
                 await websocket_callback({"type": "status", "message": "Failed to launch game"})

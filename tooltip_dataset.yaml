@@ -1,0 +1,8 @@
+# Path to the dataset directory
+path: ./yolo_dataset
+train: images
+val: images # Add this line
+
+# Class names
+names:
+  0: tooltip

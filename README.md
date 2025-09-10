@@ -1,227 +1,128 @@
-# ⚠️ THIS IS STILL WORK IN PROGRESS! ⚠️
+# DISCLAIMER
 
-## CURRENTLY ONLY DOES HERO ABILITY TOOLTIPS NOT STATISTICS IMAGES YET
+This is a wip project and I do not guarantee it will work. This is under constant development.
 
-I do not guarantee that this will work. But it should :)
+# Deadlock Hero Ability & Statistics Image Extractor
 
-# Deadlock Hero Ability Tooltip & Statistics Image Extractor
-
-A Python tool with both CLI and web interfaces to automatically launch Deadlock and extract hero ability tooltip images for analysis and documentation purposes. Features real-time progress tracking, intelligent tooltip detection, and organized asset management.
+A Python tool with both CLI and web interfaces to automatically launch Deadlock and extract hero ability and statistics tooltips using a state-of-the-art **YOLOv8 object detection model**.
 
 ## Features
 
-- **Cross-Platform Support**: Works on Windows and Linux systems
-- **Dual Interface**: Command-line tool and modern web dashboard
-- **Automatic Game Integration**: Launches Deadlock and navigates to hero selection
-- **Smart Image Extraction**: Intelligent tooltip detection and image capture
-- **Real-time Updates**: WebSocket-powered live progress tracking
-- **Hero Data Integration**: Fetches latest hero data from deadlock-api.com with fallback support
-- **Organized Output**: Structured file organization with hero ID-based naming
-- **Process Monitoring**: Robust game process detection and management
-- **Hotkey Controls**: Ctrl+Shift+Q emergency stop functionality
+- **Cross-Platform Support**: Works on **Windows** and **Linux**.
+- **Dual Interface**: Use the modern web dashboard or the powerful command-line tool.
+- **Automatic Game Integration**: Launches Deadlock and navigates to the hero selection screen.
+- **State-of-the-Art Detection**: Utilizes a custom-trained **YOLOv8 model** for highly accurate, real-time tooltip detection.
+- **Train Your Own Model**: Includes a complete workflow for labeling your own data and training a custom detector.
+- **Flexible Extraction**: Choose to extract hero abilities, statistics, or both.
+- **Real-time Updates**: The web dashboard provides live log updates and image previews.
+- **Organized Output**: Saves all images in a structured directory with clear naming.
+- **Emergency Stop**: Press **Ctrl+Shift+Q** at any time to safely halt the extraction process.
 
-## Prerequisites
-
-- Python 3.9+
-- Deadlock game installed on Windows or Linux
-- 1920x1080 screen resolution recommended
-- uv package manager
+---
 
 ## Installation
 
+This project requires **Python 3.9**. Due to dependencies, it is **not compatible with newer versions** like Python 3.10+.
+
 ```bash
+# Clone the repository
 git clone https://github.com/Oskar-Sterner/deadlock-hero-ability-statistics-image-extractor
 cd deadlock-hero-ability-statistics-image-extractor
+
+# Create a Python 3.9 virtual environment
+# (Ensure python3.9 is available in your PATH)
+uv venv -p python3.9
+
+# Install dependencies
 uv sync
 ```
+
+---
 
 ## Usage
 
 ### Web Interface (Recommended)
 
-Launch the web dashboard for an interactive experience:
+The web interface offers the best user experience with full control and real-time feedback.
+
+**Launch the server:**
 
 ```bash
 uv run deadlock-extractor-web
 ```
 
-Then open your browser to `http://localhost:3000` for:
+Then, open your browser to **`http://localhost:3000`**. From the dashboard, you can start/stop the process, select what to extract, and see live results.
 
-- Real-time extraction monitoring
-- Live log updates
-- Image preview as they're extracted
-- Settings management
-- Start/stop controls
-
-### Command Line Interface
-
-For direct command-line usage:
+### Command-Line Interface
 
 ```bash
-uv run deadlock-extractor
+# Extract both abilities and statistics
+uv run deadlock-extractor --abilities --stats
+
+# Extract only abilities (default)
+uv run deadlock-extractor --abilities
+
+# Specify a custom game path
+uv run deadlock-extractor --game-path "/path/to/your/deadlock/executable"
 ```
 
-### Development Mode
-
-```bash
-uv sync --dev
-uv run python src/deadlock_hero_ability_statistics_image_extractor/main.py
-```
-
-## Configuration
-
-### Web Interface
-
-Navigate to the Settings page in the web interface and update the game executable path.
-
-### Manual Configuration
-
-Update the game path in your settings or directly in the code:
-
-**Windows:**
-
-```python
-game_path = r"YOUR_STEAM_PATH\steamapps\common\Deadlock\game\bin\win64\deadlock.exe"
-```
-
-**Linux:**
-
-```python
-game_path = "/YOUR_STEAM_PATH/steamapps/common/Deadlock/game/bin/linuxsteamrt64/deadlock"
-```
-
-## Output Structure
-
-```
-extracted_images/
-├── abilities/
-│   ├── hero6_ability_1.png    # Abrams Ability 1
-│   ├── hero6_ability_2.png    # Abrams Ability 2
-│   ├── hero6_ability_3.png    # Abrams Ability 3
-│   ├── hero6_ability_4.png    # Abrams Ability 4
-│   └── ...                    # All heroes (32+ total)
-└── stats/
-    └── (future implementation)
-```
+---
 
 ## How It Works
 
-1. **Game Launch**: Automatically launches Deadlock and monitors process
-2. **Menu Navigation**: Waits for main menu and navigates to hero selection
-3. **Hero Processing**: Systematically processes each hero from API data
-4. **Tooltip Capture**: Hovers over abilities and captures tooltip images
-5. **Smart Cropping**: Uses intelligent boundary detection for clean extracts
-6. **Real-time Updates**: Reports progress via web interface or console
-7. **Organized Storage**: Saves with consistent hero ID-based naming
+The extractor uses a modern computer vision pipeline for detection.
 
-## Project Structure
+1.  **Launch & Navigate**: The tool launches Deadlock, waits for the main menu, and automatically navigates to the hero selection screen.
+2.  **Hero Iteration**: It iterates through each hero, hovering the mouse over abilities and stats to trigger tooltips.
+3.  **YOLOv8 Detection**: For each frame, it takes a screenshot and feeds it to the custom-trained YOLOv8 model (`yolov8n.pt`). The model instantly returns the precise bounding box of any tooltip it finds.
+4.  **Capture & Save**: The detected region is cropped from the screenshot and saved to the `extracted_images/` directory.
 
-```
-📦deadlock-hero-ability tooltip-statistics-image-extractor
- ┣ 📂extracted_images
- ┃ ┣ 📂abilities
- ┃ ┗ 📂stats
- ┣ 📂src
- ┃ ┗ 📂deadlock_hero_ability_statistics_image_extractor
- ┃ ┃ ┣ 📂static
- ┃ ┃ ┃ ┣ 📜app.js
- ┃ ┃ ┃ ┗ 📜style.css
- ┃ ┃ ┣ 📂templates
- ┃ ┃ ┃ ┣ 📜index.html
- ┃ ┃ ┃ ┗ 📜settings.html
- ┃ ┃ ┣ 📜main.py
- ┃ ┃ ┣ 📜web_app.py
- ┃ ┃ ┗ 📜__init__.py
- ┣ 📜pyproject.toml
- ┣ 📜README.md
- ┗ 📜uv.lock
-```
+---
 
-## API Integration
+## Training Your Own Model
 
-The tool integrates with deadlock-api.com to fetch the latest hero data:
+The power of this tool is its custom-trained model. You can improve it or adapt it to game updates by following this workflow.
 
-- Automatically retrieves current hero roster
-- Falls back to embedded data if API is unavailable
-- Supports dynamic hero additions/changes
-- Maintains consistent hero ID mapping
+### 1\. Installation for Training
 
-## Platform Support
-
-### Windows
-
-- Game executable: `deadlock.exe`
-- Steam path: `C:\Program Files (x86)\Steam\steamapps\common\Deadlock\game\bin\win64\deadlock.exe`
-- Process monitoring via exact executable name matching
-
-### Linux
-
-- Game executable: `deadlock`
-- Steam paths:
-  - `~/.steam/steam/steamapps/common/Deadlock/game/bin/linuxsteamrt64/deadlock`
-  - `~/.local/share/Steam/steamapps/common/Deadlock/game/bin/linuxsteamrt64/deadlock`
-- Process monitoring via exact executable name matching
-
-## Development
-
-### Install development dependencies
+You will need the `labelImg` tool for annotating images. Install it into your environment:
 
 ```bash
-uv sync --dev
+# Install development dependencies, including labelImg
+uv pip install -e ".[dev]"
 ```
 
-### Code formatting
+### 2\. Data Collection & Annotation
 
-```bash
-uv run black src/
-uv run ruff check src/
-```
+- Create a `yolo_dataset/images` folder.
+- Add dozens of in-game screenshots to this folder. Capture a wide variety of tooltips in different positions.
+- Launch the annotation tool:
+  ```powershell
+  # On Windows
+  .\.venv\Scripts\labelImg.exe
+  ```
+- In `labelImg`:
+  1.  Open your `yolo_dataset/images` directory.
+  2.  Set the save directory to a new `yolo_dataset/labels` folder.
+  3.  **Crucially, set the format to `YOLO`**.
+  4.  Draw a box around every tooltip and label it `tooltip`.
+  5.  Save your work. This creates a `.txt` file for each labeled image.
 
-### Building
+### 3\. Training
 
-```bash
-uv build
-```
+- Create a `tooltip_dataset.yaml` file in the project root:
 
-## Dependencies
+  ```yaml
+  path: ./yolo_dataset
+  train: images
+  val: images
 
-### Core Requirements
+  names:
+    0: tooltip
+  ```
 
-- **psutil**: Process monitoring and management
-- **pillow**: Image processing and manipulation
-- **numpy**: Numerical operations for image analysis
-- **pynput**: Keyboard hotkey detection
-- **requests**: API integration for hero data
-- **pyautogui**: Cross-platform screen automation
-
-### Web Interface
-
-- **fastapi**: Modern web framework
-- **uvicorn**: ASGI server
-- **jinja2**: Template rendering
-- **python-multipart**: Form handling
-
-## Controls
-
-- **Ctrl+Shift+Q**: Emergency stop during extraction
-- **Web Interface**: Start/stop buttons with real-time control
-- **Process Monitoring**: Automatic game state detection
-
-## Troubleshooting
-
-### Common Issues
-
-- Ensure Deadlock is not running before starting extraction
-- Verify screen resolution is 1920x1080 for accurate coordinates
-- Check game path in settings if launch fails
-- Use web interface for better error visibility
-- On Linux, ensure proper display server access for screen automation
-
-### Performance Notes
-
-- Extraction typically takes around 4 minutes for all hero ability tooltips
-- Cross-platform process detection ensures reliable game state monitoring
-
-## License
-
-MIT License
+- Run the training script. This will take time and uses your CPU by default.
+  ```bash
+  uv run train-tooltip-detector
+  ```
+- Your new model will be saved in the `runs/detect/train/weights/best.pt` directory. Update the path in `tooltip_detector.py` if a new folder (e.g., `train`) is created.
