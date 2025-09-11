@@ -102,9 +102,15 @@ class DeadlockLauncher:
             await self.websocket_callback({"type": "status", "message": message})
 
     def is_game_running(self) -> bool:
+        if platform.system() == "Windows":
+            expected_name = "deadlock.exe"
+        else:
+            expected_name = "deadlock"
+
         for proc in psutil.process_iter(['name', 'exe']):
             try:
-                if 'deadlock' in proc.info.get('name', '').lower():
+                if proc.info.get('name', '').lower() == expected_name:
+                    print(f"Found matching game process: {proc.info.get('name')}")
                     return True
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
@@ -143,6 +149,8 @@ class DeadlockLauncher:
         try:
             await self.send_status(f"Launching Deadlock from: {self.game_path.parent}")
             self.process = subprocess.Popen(str(self.game_path), cwd=self.game_path.parent)
+            await self.send_status("Giving game 5 seconds to initialize...")
+            await asyncio.sleep(5)
             if await self.wait_for_main_menu():
                 return True
             else:
@@ -153,9 +161,13 @@ class DeadlockLauncher:
             return False
 
     def close_game(self):
+        if platform.system() == "Windows":
+            expected_name = "deadlock.exe"
+        else:
+            expected_name = "deadlock"
         for proc in psutil.process_iter(['pid', 'name', 'exe']):
             try:
-                if 'deadlock' in proc.info.get('name', '').lower():
+                if proc.info.get('name', '').lower() == expected_name:
                     proc.terminate()
                     proc.wait(timeout=10)
                     print("Game closed successfully.")
@@ -222,7 +234,7 @@ class HeroImageExtractor:
             await self.send_status("Failed to open settings menu.")
             return False
         
-        self.controller.click(273, 767) # Click "SWAP HERO"
+        self.controller.click(273, 767)
         await asyncio.sleep(2)
         return True
 
@@ -301,8 +313,8 @@ def get_default_game_path():
         for drive in "CFDE":
             path = Path(f"{drive}:/SteamLibrary/steamapps/common/Deadlock/game/bin/win64/deadlock.exe")
             if path.exists(): return str(path)
-        return r"C:\Program Files (x86)\Steam\steamapps\common\Deadlock\game\bin\win64\deadlock.exe"
-    else: # Linux
+        return r"C:\Program Files (x8x6)\Steam\steamapps\common\Deadlock\game\bin\win64\deadlock.exe"
+    else:
         home = Path.home()
         paths = [
             home / ".steam/steam/steamapps/common/Deadlock/game/bin/linuxsteamrt64/deadlock",
@@ -320,7 +332,6 @@ async def main_cli():
     parser.add_argument('--game-path', type=str, help='Path to game executable')
     args = parser.parse_args()
     
-    # If no flags are given, default to extracting abilities
     extract_abilities = args.abilities or not (args.abilities or args.stats)
     options = ExtractionOptions(extract_abilities, args.stats)
     

@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .main import DeadlockLauncher, HeroImageExtractor, ExtractionOptions, get_default_game_paths
+from .main import DeadlockLauncher, HeroImageExtractor, ExtractionOptions, get_default_game_path
 
 
 app = FastAPI()
@@ -47,7 +47,7 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 settings = {
-    "game_path": get_default_game_paths()
+    "game_path": get_default_game_path()
 }
 
 extraction_state = {
@@ -232,7 +232,7 @@ async def start_extraction(request: Request):
     async def run_extraction():
         try:
             launcher = DeadlockLauncher(settings["game_path"], websocket_callback)
-            extractor = HeroImageExtractor(websocket_callback=websocket_callback, use_detection=True, debug=True)
+            extractor = HeroImageExtractor(websocket_callback=websocket_callback, debug=True)
             
             extraction_state["launcher"] = launcher
             extraction_state["extractor"] = extractor

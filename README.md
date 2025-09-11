@@ -92,6 +92,20 @@ You will need the `labelImg` tool for annotating images. Install it into your en
 uv pip install -e ".[dev]"
 ```
 
+If you encounter errors with the uv run train-tooltip-detector. Run this:
+
+```bash
+# Install development dependencies, including labelImg
+uv pip install -e ."
+```
+
+and try again. If that fails you could run this:
+
+```bash
+# Install development dependencies, including labelImg
+uv run python src/deadlock_hero_ability_statistics_image_extractor/train_yolo.py
+```
+
 ### 2\. Data Collection & Annotation
 
 - Create a `yolo_dataset/images` folder.

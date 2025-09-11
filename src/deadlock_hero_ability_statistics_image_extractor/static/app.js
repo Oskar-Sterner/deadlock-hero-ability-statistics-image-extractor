@@ -8,6 +8,7 @@ class ExtractionDashboard {
     this.startBtn = document.getElementById("start-btn");
     this.stopBtn = document.getElementById("stop-btn");
     this.statusIndicator = document.getElementById("status-indicator");
+    this.logContainer = document.getElementById("log-container");
     this.logContent = document.getElementById("log-content");
     this.heroGrid = document.getElementById("hero-grid");
     this.extractAbilitiesCheckbox =
@@ -140,13 +141,13 @@ class ExtractionDashboard {
     this.logContent.appendChild(logEntry);
 
     requestAnimationFrame(() => {
-      this.logContent.scrollTop = this.logContent.scrollHeight;
+      this.logContainer.scrollTop = this.logContainer.scrollHeight;
     });
 
     if (this.logContent.children.length > 100) {
       this.logContent.removeChild(this.logContent.firstChild);
       requestAnimationFrame(() => {
-        this.logContent.scrollTop = this.logContent.scrollHeight;
+        this.logContainer.scrollTop = this.logContainer.scrollHeight;
       });
     }
   }
@@ -156,7 +157,7 @@ class ExtractionDashboard {
     if (!heroCard) return;
 
     const abilitySlot = heroCard.querySelector(
-      `[data-ability="${abilityIndex + 1}"]`
+      `[data-ability="${abilityIndex}"]`
     );
     if (!abilitySlot) return;
 
@@ -172,7 +173,7 @@ class ExtractionDashboard {
 
       const img = document.createElement("img");
       img.src = `/images/abilities/${filename}`;
-      img.alt = `Hero ${heroId} Ability ${abilityIndex + 1}`;
+      img.alt = `Hero ${heroId} Ability ${abilityIndex}`;
       img.className = "ability-image";
 
       img.onload = () => {
@@ -230,7 +231,7 @@ class ExtractionDashboard {
           data.filename
         );
         this.addLogEntry(
-          `Updated Hero ${data.hero_id} Ability ${data.ability_index + 1}`
+          `Updated Hero ${data.hero_id} Ability ${data.ability_index}`
         );
         break;
 

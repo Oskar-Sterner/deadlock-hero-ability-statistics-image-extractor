@@ -20,3 +20,6 @@ runs/
 dist/
 build/
 *.egg-info/
+
+# Other
+extracted_images/
