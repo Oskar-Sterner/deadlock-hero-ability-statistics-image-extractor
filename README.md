@@ -2,21 +2,21 @@
 
 This is a wip project and I do not guarantee it will work. This is under constant development.
 
-# Deadlock Hero Ability & Statistics Image Extractor
+# Deadlock Ability & Item Tooltip Image Extractor
 
-A Python tool with both CLI and web interfaces to automatically launch Deadlock and extract hero ability and statistics tooltips using a custom-trained **YOLOv8 segmentation model**.
+A Python tool with both CLI and web interfaces to automatically launch Deadlock and extract either **hero ability tooltips** or **item tooltips** using custom-trained **YOLOv8 segmentation models**.
 
 ## Features
 
 - **Cross-Platform Support**: Works on **Windows** and **Linux**.
 - **Dual Interface**: Use the modern web dashboard or the powerful command-line tool.
-- **Automatic Game Integration**: Launches Deadlock and navigates to the hero selection screen.
+- **Automatic Game Integration**: Launches Deadlock and navigates to either hero selection or item shop.
 - **Runtime Launch Controls**: Configure platform override, launch mode (`auto`/`direct`/`steam`), and custom game path.
 - **Resolution-Aware Automation**: Auto-detects primary display resolution for click scaling, with optional manual overrides.
 - **State-of-the-Art Detection**: Utilizes a custom-trained **YOLOv8 segmentation model** for highly accurate, real-time tooltip detection.
 - **Shape-Preserving Crops**: Exports tooltip images as transparent PNGs so non-rectangular tooltip edges are preserved.
 - **Train Your Own Model**: Includes a complete workflow for labeling your own data and training a custom detector.
-- **Flexible Extraction**: Choose to extract hero abilities, statistics, or both.
+- **Flexible Extraction**: Choose extraction mode: `ability` or `items`.
 - **Real-time Updates**: The web dashboard provides live log updates and image previews.
 - **Organized Output**: Saves all images in a structured directory with clear naming.
 - **Emergency Stop**: Press **Ctrl+Shift+Q** at any time to safely halt the extraction process.
@@ -54,7 +54,7 @@ The web interface offers the best user experience with full control and real-tim
 uv run deadlock-extractor-web
 ```
 
-Then, open your browser to **`http://localhost:3000`**. From the dashboard, you can start/stop the process, select what to extract, and see live results.
+Then, open your browser to **`http://localhost:3000`**. From the dashboard, you can start/stop the process, select extraction mode (`ability` or `items`), and see live results.
 
 Use **Settings** to configure:
 
@@ -67,11 +67,11 @@ Use **Settings** to configure:
 ### Command-Line Interface
 
 ```bash
-# Extract both abilities and statistics
-uv run deadlock-extractor --abilities --stats
+# Extract ability tooltips (default)
+uv run deadlock-extractor --mode ability
 
-# Extract only abilities (default)
-uv run deadlock-extractor --abilities
+# Extract item tooltips
+uv run deadlock-extractor --mode items
 
 # Specify a custom game path
 uv run deadlock-extractor --game-path "/path/to/your/deadlock/executable"
@@ -86,7 +86,7 @@ uv run deadlock-extractor \
 uv run deadlock-extractor --display-width 2560 --display-height 1440
 
 # Explicit headless/CLI mode (same behavior as default CLI)
-uv run deadlock-extractor --headless --abilities
+uv run deadlock-extractor --headless --mode ability
 ```
 
 ---
@@ -95,8 +95,8 @@ uv run deadlock-extractor --headless --abilities
 
 The extractor uses a modern computer vision pipeline for detection.
 
-1.  **Launch & Navigate**: The tool launches Deadlock, waits for the main menu, and automatically navigates to the hero selection screen.
-2.  **Hero Iteration**: It iterates through each hero, hovering the mouse over abilities and stats to trigger tooltips.
+1.  **Launch & Navigate**: The tool launches Deadlock, waits for the main menu, and navigates to hero selection (`ability` mode) or item shop (`items` mode).
+2.  **Tooltip Iteration**: It iterates either hero abilities or item cards to trigger tooltips.
 3.  **YOLOv8 Segmentation**: For each frame, it takes a screenshot and feeds it to the custom-trained YOLOv8 segmentation model (`yolov8n-seg.pt` for training). The runtime model returns the best tooltip mask/polygon and confidence.
 4.  **Capture & Save**: The tooltip is cropped to the mask bounding region and saved as a transparent PNG in `extracted_images/`.
 
@@ -124,8 +124,14 @@ uv pip install -e ".[dev]"
 
 ### 2\. Data Collection & Polygon Annotation (LabelMe)
 
-1. Create `yolo_dataset/images` and add many in-game screenshots with tooltip variation.
-2. Create `yolo_dataset/annotations_labelme` for LabelMe JSON annotations.
+Use task-scoped datasets:
+
+- `yolo_dataset/abilities/{images,annotations_labelme,labels}`
+- `yolo_dataset/items/{images,annotations_labelme,labels}`
+
+1. Pick a task (`abilities` or `items`).
+2. Add screenshots to `yolo_dataset/<task>/images`.
+3. Save LabelMe JSON annotations to `yolo_dataset/<task>/annotations_labelme`.
 3. Launch LabelMe:
 
 ```bash
@@ -139,8 +145,8 @@ uv run labelme
 ```
 
 4. In LabelMe:
-   - Open `yolo_dataset/images`.
-   - Set output directory to `yolo_dataset/annotations_labelme`.
+   - Open `yolo_dataset/<task>/images`.
+   - Set output directory to `yolo_dataset/<task>/annotations_labelme`.
    - Use the **Polygon** tool and trace the tooltip edge.
    - Use label name `tooltip`.
    - Save each annotation as JSON.
@@ -151,8 +157,8 @@ Convert the annotations into YOLO segmentation `.txt` labels:
 
 ```bash
 uv run convert-labelme-yolo-seg \
-  --input yolo_dataset/annotations_labelme \
-  --output yolo_dataset/labels \
+  --input yolo_dataset/<task>/annotations_labelme \
+  --output yolo_dataset/<task>/labels \
   --class-map tooltip=0
 ```
 
@@ -166,10 +172,19 @@ Where all coordinates are normalized to `[0, 1]`.
 
 ### 4\. Train the Segmentation Model
 
-Ensure `tooltip_dataset.yaml` is present in the project root:
+Ensure task YAML files are present in the project root:
 
 ```yaml
-path: ./yolo_dataset
+path: ./yolo_dataset/abilities
+train: images
+val: images
+
+names:
+  0: tooltip
+```
+
+```yaml
+path: ./yolo_dataset/items
 train: images
 val: images
 
@@ -180,23 +195,39 @@ names:
 Run training with segmentation defaults:
 
 ```bash
-uv run train-tooltip-detector
+# Abilities model
+uv run train-tooltip-detector --task abilities
+
+# Items model
+uv run train-tooltip-detector --task items
 ```
 
 Optional overrides:
 
 ```bash
-uv run train-tooltip-detector --model yolov8n-seg.pt --epochs 100 --imgsz 768 --device 0
+uv run train-tooltip-detector \
+  --task items \
+  --model yolov8n-seg.pt \
+  --epochs 100 \
+  --imgsz 768 \
+  --device 0 \
+  --run-name train
 ```
 
 Expected output weights path:
 
 ```text
-runs/segment/train/weights/best.pt
+runs/abilities/segment/train/weights/best.pt
+runs/items/segment/train/weights/best.pt
 ```
 
-Runtime fallback is supported for older detect weights at `runs/detect/train/weights/best.pt`, but the segmentation path is preferred.
+Runtime model lookup is mode-specific:
+
+- ability mode: `models/abilities/best.pt` then `runs/abilities/segment/train/weights/best.pt`
+- items mode: `models/items/best.pt` then `runs/items/segment/train/weights/best.pt`
 
 ### 5\. Migration Note for Existing Labels
 
 Existing bounding-box labels should be fully relabeled as polygons. Do not rely on auto-converted box polygons for production-quality results.
+
+If you already have old ability data directly in `yolo_dataset/`, move it into `yolo_dataset/abilities/` before retraining.

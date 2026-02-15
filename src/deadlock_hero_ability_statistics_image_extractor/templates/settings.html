@@ -8,7 +8,7 @@
   </head>
   <body>
     <header>
-      <h1>Deadlock Hero Ability Extractor</h1>
+      <h1>Deadlock Extractor</h1>
       <nav>
         <a href="/" class="nav-link">Dashboard</a>
         <a href="/settings" class="nav-link active">Settings</a>
@@ -23,14 +23,14 @@
           <p><strong>Host Platform:</strong> {{ host_platform }}</p>
           <p><strong>Effective Platform:</strong> {{ effective_platform }}</p>
           <p>
-            <strong>Detected Primary Display:</strong>
+            <strong>Detected Display:</strong>
             {{ detected_width }}x{{ detected_height }}
           </p>
         </div>
 
         <form method="POST" action="/settings" class="settings-form">
           <div class="form-group">
-            <label for="platform_override">Platform Override:</label>
+            <label for="platform_override">Platform Override</label>
             <select id="platform_override" name="platform_override">
               <option value="auto" {% if selected_platform == "auto" %}selected{% endif %}>
                 Auto (Use Host Platform)
@@ -42,67 +42,49 @@
                 Linux
               </option>
             </select>
-            <small>
-              Use this to force launch behavior as Windows or Linux.
-            </small>
+            <small>Force launch behavior as Windows or Linux.</small>
           </div>
 
           <div class="form-group">
-            <label for="launch_mode">Launch Mode:</label>
+            <label for="launch_mode">Launch Mode</label>
             <select id="launch_mode" name="launch_mode">
-              <option
-                value="auto"
-                {% if selected_launch_mode == "auto" %}selected{% endif %}
-              >
+              <option value="auto" {% if selected_launch_mode == "auto" %}selected{% endif %}>
                 Auto (Recommended)
               </option>
-              <option
-                value="direct"
-                {% if selected_launch_mode == "direct" %}selected{% endif %}
-              >
+              <option value="direct" {% if selected_launch_mode == "direct" %}selected{% endif %}>
                 Direct Executable
               </option>
-              <option
-                value="steam"
-                {% if selected_launch_mode == "steam" %}selected{% endif %}
-              >
+              <option value="steam" {% if selected_launch_mode == "steam" %}selected{% endif %}>
                 Steam App Launch
               </option>
             </select>
-            <small>
-              On Linux with a Proton `deadlock.exe` path, Steam launch mode is usually safest.
-            </small>
+            <small>On Linux/Proton, Steam mode is usually most reliable.</small>
           </div>
 
           <div class="form-group">
-            <label for="game_path">Game Executable Path:</label>
+            <label for="game_path">Game Executable Path</label>
             <input
               type="text"
               id="game_path"
               name="game_path"
               value="{{ game_path }}"
+              placeholder="Full path to deadlock.exe or deadlock"
             />
-            <small
-              >Examples:
-              <code>/mnt/nvme2tb/SteamLibrary/steamapps/common/Deadlock/game/bin/win64/deadlock.exe</code>
-              or
-              <code>~/.local/share/Steam/steamapps/common/Deadlock/game/bin/linuxsteamrt64/deadlock</code></small
-            >
           </div>
 
           <div class="form-group">
-            <label for="steam_app_id">Steam App ID:</label>
+            <label for="steam_app_id">Steam App ID</label>
             <input
               type="text"
               id="steam_app_id"
               name="steam_app_id"
               value="{{ steam_app_id }}"
             />
-            <small>Used when launch mode is <code>steam</code>.</small>
+            <small>Only used for Steam launch mode.</small>
           </div>
 
           <div class="form-group">
-            <label>Manual Display Resolution Override (optional):</label>
+            <label>Display Resolution Override</label>
             <div class="form-row-two">
               <input
                 type="number"
@@ -121,9 +103,7 @@
                 value="{{ display_height }}"
               />
             </div>
-            <small>
-              Leave blank to auto-detect primary display resolution.
-            </small>
+            <small>Leave empty to auto-detect resolution.</small>
           </div>
 
           <div class="form-actions">
@@ -144,16 +124,10 @@
         <div class="info-section">
           <h3>Instructions</h3>
           <ul>
-            <li>Set a valid game path or keep the auto-discovered value</li>
-            <li>Use launch mode <strong>steam</strong> if direct executable launch fails</li>
-            <li>
-              Make sure the game is not running before starting extraction
-            </li>
-            <li>
-              Resolution override controls coordinate scaling for clicks/mouse movement
-            </li>
-            <li>Press Ctrl+Shift+Q to stop extraction at any time</li>
-            <li>Extracted images will appear in real-time on the dashboard</li>
+            <li>Set a valid game path or keep auto-discovered value.</li>
+            <li>Use <strong>Steam</strong> launch mode if direct launch fails.</li>
+            <li>Ensure the game is closed before starting extraction.</li>
+            <li>Press <strong>Ctrl+Shift+Q</strong> to stop extraction manually.</li>
           </ul>
         </div>
       </div>

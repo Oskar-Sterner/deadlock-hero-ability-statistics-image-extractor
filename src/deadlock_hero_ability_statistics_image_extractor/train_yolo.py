@@ -3,15 +3,31 @@ from pathlib import Path
 
 from ultralytics import YOLO
 
+VALID_TASKS = {"abilities", "items"}
+
+
+def default_dataset_yaml_for_task(task: str) -> Path:
+    root = Path(__file__).resolve().parent.parent.parent
+    if task == "items":
+        return root / "tooltip_dataset_items.yaml"
+    return root / "tooltip_dataset_abilities.yaml"
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Train YOLO tooltip segmentation model"
     )
     parser.add_argument(
+        "--task",
+        type=str,
+        default="abilities",
+        choices=sorted(VALID_TASKS),
+        help="Dataset/model task to train: abilities or items",
+    )
+    parser.add_argument(
         "--data",
         type=Path,
-        default=Path(__file__).resolve().parent.parent.parent / "tooltip_dataset.yaml",
+        default=None,
         help="Path to YOLO dataset yaml file",
     )
     parser.add_argument(
@@ -38,6 +54,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="cpu",
         help="Training device (e.g. cpu, 0)",
     )
+    parser.add_argument(
+        "--run-name",
+        type=str,
+        default="train",
+        help="YOLO run name under the selected task project directory",
+    )
     return parser
 
 
@@ -50,11 +72,15 @@ def main():
 
     model = YOLO(args.model)
 
-    config_path = args.data
+    config_path = args.data or default_dataset_yaml_for_task(args.task)
+    project_path = Path("runs") / args.task / "segment"
 
     print("Starting YOLO segmentation training")
+    print(f"Task: {args.task}")
     print(f"Base model: {args.model}")
     print(f"Dataset config: {config_path}")
+    print(f"Run output project: {project_path}")
+    print(f"Run output name: {args.run_name}")
     print(
         f"Training args: epochs={args.epochs}, imgsz={args.imgsz}, device={args.device}"
     )
@@ -64,10 +90,14 @@ def main():
         epochs=args.epochs,
         imgsz=args.imgsz,
         device=args.device,
+        project=str(project_path),
+        name=args.run_name,
     )
 
     print("Training complete!")
-    print("Expected segmentation weights path: runs/segment/train/weights/best.pt")
+    print(
+        f"Expected segmentation weights path: {project_path}/{args.run_name}/weights/best.pt"
+    )
 
 
 if __name__ == "__main__":

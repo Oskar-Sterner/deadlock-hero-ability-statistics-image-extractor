@@ -38,7 +38,7 @@ def test_bbox_from_polygon_requires_at_least_three_points():
     assert bbox is None
 
 
-def test_select_best_detection_prefers_mask_bbox_when_available():
+def test_select_best_detection_uses_union_of_box_and_mask_bbox_when_available():
     detector = TooltipDetector.__new__(TooltipDetector)
 
     boxes = FakeBoxes(
@@ -59,7 +59,7 @@ def test_select_best_detection_prefers_mask_bbox_when_available():
     assert detection is not None
     assert detection["confidence"] == 0.9
     assert detection["has_mask"] is True
-    assert detection["bbox_xywh"] == (11, 11, 8, 9)
+    assert detection["bbox_xywh"] == (10, 10, 9, 10)
 
 
 def test_select_best_detection_falls_back_to_box_when_mask_missing():
@@ -128,3 +128,31 @@ def test_merge_detections_combines_tooltip_panels_and_ignores_far_noise():
     assert merged["component_count"] == 4
     assert merged["bbox_xywh"] == (100, 100, 130, 112)
     assert merged["has_mask"] is True
+
+
+def test_merge_detections_expands_bbox_with_image_shape_to_reduce_clipping():
+    detector = TooltipDetector.__new__(TooltipDetector)
+
+    detections = [
+        {
+            "confidence": 0.9,
+            "bbox_xywh": (100, 120, 200, 160),
+            "bbox_xyxy": (100, 120, 300, 280),
+            "region": (100, 120, 200, 160),
+            "polygon": None,
+            "has_mask": False,
+        }
+    ]
+
+    merged = detector._merge_detections(detections, image_shape=(600, 800, 3))
+
+    assert merged is not None
+    x, y, w, h = merged["bbox_xywh"]
+    assert x < 100
+    assert y < 120
+    assert w > 200
+    assert h > 160
+    assert x >= 0
+    assert y >= 0
+    assert x + w <= 800
+    assert y + h <= 600

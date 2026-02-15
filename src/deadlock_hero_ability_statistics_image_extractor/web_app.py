@@ -145,8 +145,9 @@ def _parse_optional_int(value: str) -> Optional[int]:
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
     abilities_dir = images_dir / "abilities"
-    stats_dir = images_dir / "stats"
+    items_dir = images_dir / "items"
     extracted_images = {}
+    extracted_items = {}
     
     for hero in hero_data:
         hero_id = hero["id"]
@@ -154,7 +155,6 @@ async def dashboard(request: Request):
         extracted_images[hero_id] = {
             "name": hero_name,
             "abilities": {},
-            "stats": {}
         }
         
         for ability_index in range(1, 5):
@@ -167,17 +167,11 @@ async def dashboard(request: Request):
                     "path": f"/images/abilities/{filename}"
                 }
 
-        stat_names = ["weapon", "vitality", "spirit"]
-        for stat_index, stat_name in enumerate(stat_names):
-            filename = f"hero{hero_id}_{stat_name}_stat.png"
-            filepath = stats_dir / filename
-            
-            if filepath.exists():
-                extracted_images[hero_id]["stats"][stat_index] = {
-                    "filename": filename,
-                    "path": f"/images/stats/{filename}",
-                    "name": stat_name
-                }
+    for item_path in sorted(items_dir.glob("item_*.png")):
+        extracted_items[item_path.name] = {
+            "filename": item_path.name,
+            "path": f"/images/items/{item_path.name}",
+        }
     
     current_platform = detect_host_platform()
     
@@ -185,9 +179,11 @@ async def dashboard(request: Request):
         "request": request,
         "hero_data": hero_data,
         "extracted_images": extracted_images,
+        "extracted_items": extracted_items,
         "extraction_running": extraction_state["running"],
         "api_success": api_success,
         "hero_count": len(hero_data),
+
         "platform": current_platform
     })
 
@@ -264,10 +260,12 @@ async def start_extraction(request: Request):
         return {"status": "error", "message": "Extraction already running"}
     
     body = await request.json()
-    extract_abilities = body.get("extract_abilities", True)
-    extract_stats = body.get("extract_stats", False)
-    
-    options = ExtractionOptions(extract_abilities, extract_stats)
+    extraction_mode = body.get("extraction_mode", "ability")
+
+    try:
+        options = ExtractionOptions(extraction_mode)
+    except ValueError as exc:
+        return {"status": "error", "message": str(exc)}
 
     try:
         display_width = _parse_optional_int(settings["display_width"])
@@ -298,6 +296,7 @@ async def start_extraction(request: Request):
                 websocket_callback=websocket_callback,
                 debug=True,
                 display_resolution=display_resolution,
+                extraction_mode=options.extraction_mode,
             )
 
             await websocket_callback(
@@ -307,7 +306,8 @@ async def start_extraction(request: Request):
                         "Runtime settings: "
                         f"platform={launcher.platform_name}, "
                         f"launch_mode={launcher.launch_mode}, "
-                        f"display={extractor.display_resolution[0]}x{extractor.display_resolution[1]}"
+                        f"display={extractor.display_resolution[0]}x{extractor.display_resolution[1]}, "
+                        f"mode={options.extraction_mode}"
                     ),
                 }
             )
@@ -317,8 +317,8 @@ async def start_extraction(request: Request):
             
             if await launcher.launch_game():
                 await websocket_callback({"type": "status", "message": "Game is ready for image extraction"})
-                
-                if not await extractor.extract_hero_data(options):
+
+                if not await extractor.extract_tooltips(options):
                     await websocket_callback({"type": "status", "message": "Extraction stopped by user"})
                     
             else:

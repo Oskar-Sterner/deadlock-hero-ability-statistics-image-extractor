@@ -9,6 +9,7 @@ __pycache__/
 
 # YOLO files
 yolo_dataset/labels.cache
+yolo_dataset/**/labels.cache
 
 # IDE files
 .idea/

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Optional, List, Tuple
 import pyautogui
 import pynput.keyboard as keyboard
+from .item_catalog import build_item_tooltip_tabs
 from .tooltip_detector import TooltipDetector
 
 
@@ -24,6 +25,7 @@ GAME_PROCESS_START_TIMEOUT_SECONDS = 30
 GAME_MAIN_MENU_TIMEOUT_SECONDS = 180
 GAME_INITIALIZATION_DELAY_SECONDS = 30
 ALLOW_WAYLAND_OVERRIDE_ENV = "DEADLOCK_ALLOW_WAYLAND"
+EXTRACTION_MODES = {"ability", "items"}
 
 
 def get_sort_name(name):
@@ -393,9 +395,14 @@ def fetch_hero_data():
 
 
 class ExtractionOptions:
-    def __init__(self, extract_abilities=True, extract_stats=False):
-        self.extract_abilities = extract_abilities
-        self.extract_stats = extract_stats
+    def __init__(self, extraction_mode: str = "ability"):
+        normalized_mode = str(extraction_mode or "").strip().lower()
+        if normalized_mode not in EXTRACTION_MODES:
+            raise ValueError(
+                f"Invalid extraction mode '{extraction_mode}'. "
+                f"Expected one of: {sorted(EXTRACTION_MODES)}"
+            )
+        self.extraction_mode = normalized_mode
 
 
 class CrossPlatformController:
@@ -427,6 +434,7 @@ class CrossPlatformController:
         def on_hotkey():
             print("\nCtrl+Shift+Q pressed. Stopping program...")
             self.stop_flag = True
+
         self.hotkey_listener = keyboard.GlobalHotKeys({'<ctrl>+<shift>+q': on_hotkey})
         self.hotkey_listener.start()
 
@@ -825,19 +833,28 @@ class HeroImageExtractor:
         websocket_callback=None,
         debug: bool = False,
         display_resolution: Optional[Tuple[int, int]] = None,
+        extraction_mode: str = "ability",
     ):
         self.output_dir = Path("extracted_images")
         self.abilities_dir = self.output_dir / "abilities"
-        self.stats_dir = self.output_dir / "stats"
+        self.items_dir = self.output_dir / "items"
+        self.extraction_mode = str(extraction_mode or "ability").strip().lower()
+        if self.extraction_mode not in EXTRACTION_MODES:
+            raise ValueError(
+                f"Invalid extraction mode '{extraction_mode}'. "
+                f"Expected one of: {sorted(EXTRACTION_MODES)}"
+            )
 
         self.output_dir.mkdir(exist_ok=True)
         self.abilities_dir.mkdir(exist_ok=True)
-        self.stats_dir.mkdir(exist_ok=True)
+        self.items_dir.mkdir(exist_ok=True)
 
         self.controller = CrossPlatformController(websocket_callback)
         self.websocket_callback = websocket_callback
-        self.detector = TooltipDetector()
-        
+        self.detector = TooltipDetector(
+            model_paths=self._model_paths_for_mode(self.extraction_mode)
+        )
+
         self.hero_data, self.api_success = fetch_hero_data()
         self.hero_ids = [hero["id"] for hero in self.hero_data]
 
@@ -867,14 +884,33 @@ class HeroImageExtractor:
             self.scale_point(pos, layout_scale_x, layout_scale_y)
             for pos in self.ABILITY_ICON_CENTERS
         ]
-        self.stat_positions = [
-            self.scale_point(pos, scale_x, scale_y)
-            for pos in [(1900, 470), (1900, 520), (1900, 560)]
-        ]
-        self.stat_names = ["weapon", "vitality", "spirit"]
+        self.item_tabs = []
+        for tab in build_item_tooltip_tabs():
+            self.item_tabs.append(
+                {
+                    "tab_id": tab.tab_id,
+                    "tab_name": tab.tab_name,
+                    "tab_click_position": self.scale_point(
+                        tab.tab_click_position_1440p, layout_scale_x, layout_scale_y
+                    ),
+                    "items": [
+                        {
+                            "item_id": item.item_id,
+                            "item_name": item.item_name,
+                            "hover_position": self.scale_point(
+                                item.hover_position_1440p,
+                                layout_scale_x,
+                                layout_scale_y,
+                            ),
+                        }
+                        for item in tab.items
+                    ],
+                }
+            )
         self.hero_grid_start = self.scale_point(
             self.HERO_GRID_TOP_LEFT, layout_scale_x, layout_scale_y
         )
+
         self.hero_portrait_size = self.scale_size(
             self.HERO_PORTRAIT_SIZE, layout_scale_x, layout_scale_y
         )
@@ -898,9 +934,36 @@ class HeroImageExtractor:
         if self.websocket_callback:
             await self.websocket_callback({"type": "image_update", "hero_id": hero_id, "ability_index": ability_index, "filename": filename})
 
-    async def send_stat_update(self, hero_id, stat_index, filename):
+    async def send_item_update(self, item_id, item_name, filename):
         if self.websocket_callback:
-            await self.websocket_callback({"type": "stat_update", "hero_id": hero_id, "stat_index": stat_index, "filename": filename})
+            await self.websocket_callback(
+                {
+                    "type": "item_update",
+                    "item_id": item_id,
+                    "item_name": item_name,
+                    "filename": filename,
+                }
+            )
+
+    @staticmethod
+    def _model_paths_for_mode(mode: str) -> List[Path]:
+        if mode == "items":
+            return [
+                Path("models/items/best.pt"),
+                Path("runs/items/segment/train/weights/best.pt"),
+            ]
+        return [
+            Path("models/abilities/best.pt"),
+            Path("runs/abilities/segment/train/weights/best.pt"),
+            Path("runs/segment/train/weights/best.pt"),
+            Path("runs/detect/train/weights/best.pt"),
+        ]
+
+    @staticmethod
+    def _to_snake_case(value: str) -> str:
+        normalized = re.sub(r"[^a-zA-Z0-9]+", "_", str(value or "").strip().lower())
+        normalized = re.sub(r"_+", "_", normalized).strip("_")
+        return normalized or "item"
 
     def is_settings_menu_open(self):
         pixel = pyautogui.pixel(self.settings_menu_probe[0], self.settings_menu_probe[1])
@@ -922,24 +985,24 @@ class HeroImageExtractor:
         await asyncio.sleep(1.5)
         if self.controller.should_stop():
             return False
-        
+
         await self.send_status(
             f"Input backend: {self.controller.get_input_backend_name()}"
         )
-        
+
         if self.controller.focus_deadlock_window():
             await self.send_status("Focused Deadlock window for input automation.")
         else:
             await self.send_status(
                 "Could not auto-focus Deadlock window; using global desktop input."
             )
-        
+
         sw, sh = self.display_resolution
         self.controller.move_mouse(sw // 2, sh // 2)
         await asyncio.sleep(0.2)
         self.controller.click(sw // 2, sh // 2)
         await asyncio.sleep(2)
-        
+
         await self.send_status("Opening hero selection...")
         settings_menu_detected = False
         for _ in range(5):
@@ -958,12 +1021,40 @@ class HeroImageExtractor:
             await self.send_status(
                 "Settings menu probe did not confirm open; attempting hero selection click anyway."
             )
-        
+
         self.controller.move_mouse(
             self.hero_selection_button[0], self.hero_selection_button[1]
         )
         await asyncio.sleep(0.2)
         self.controller.click(self.hero_selection_button[0], self.hero_selection_button[1])
+        await asyncio.sleep(2)
+        return True
+
+    async def navigate_to_item_shop(self):
+        await self.send_status("Waiting after loading screen...")
+        await asyncio.sleep(1.5)
+        if self.controller.should_stop():
+            return False
+
+        await self.send_status(
+            f"Input backend: {self.controller.get_input_backend_name()}"
+        )
+
+        if self.controller.focus_deadlock_window():
+            await self.send_status("Focused Deadlock window for input automation.")
+        else:
+            await self.send_status(
+                "Could not auto-focus Deadlock window; using global desktop input."
+            )
+
+        sw, sh = self.display_resolution
+        self.controller.move_mouse(sw // 2, sh // 2)
+        await asyncio.sleep(0.2)
+        self.controller.click(sw // 2, sh // 2)
+        await asyncio.sleep(1.5)
+
+        await self.send_status("Opening item shop...")
+        self.controller.press_key("b")
         await asyncio.sleep(2)
         return True
 
@@ -1004,58 +1095,75 @@ class HeroImageExtractor:
             await self.send_status(f"Failed to detect tooltip for {hero_name} ability {ability_index + 1}")
         return not self.controller.should_stop()
 
-    async def capture_stat_tooltip(self, hero_index, stat_index):
-        hero_id = self.hero_ids[hero_index]
-        hero_name = self.hero_data[hero_index]["name"]
-        stat_name = self.stat_names[stat_index]
-        stat_pos = self.stat_positions[stat_index]
-        await self.send_status(f"Capturing {stat_name} stat for {hero_name}")
-
-        result = await self.detector.capture_stat_tooltip(
-            stat_pos,
-            hero_id,
-            stat_name,
+    async def capture_item_tooltip(self, item_id, item_name, hover_position):
+        await self.send_status(f"Capturing item tooltip for {item_name}")
+        result = await self.detector.capture_item_tooltip(
+            hover_position,
+            item_id,
+            item_name,
             move_mouse_callback=self.controller.move_mouse,
             screenshot_provider=self._capture_game_window_screenshot,
         )
         if result:
-            filename = f"hero{hero_id}_{stat_name}_stat.png"
-            result["image"].save(self.stats_dir / filename)
+            safe_item_name = self._to_snake_case(item_name)
+            filename = f"item_{item_id}_{safe_item_name}.png"
+            result["image"].save(self.items_dir / filename)
             await self.send_status(f"Saved {filename}")
-            await self.send_stat_update(hero_id, stat_index, filename)
+            await self.send_item_update(item_id, item_name, filename)
         else:
-            await self.send_status(f"Failed to detect tooltip for {hero_name} {stat_name} stat")
+            await self.send_status(f"Failed to detect item tooltip for {item_name}")
         return not self.controller.should_stop()
 
-    async def run_extraction_loop(self, options: ExtractionOptions):
+    async def run_ability_extraction_loop(self):
         total_heroes = len(self.hero_ids)
         for hero_index in range(total_heroes):
             if self.controller.should_stop():
                 break
-            
+
             hero_pos = self.get_hero_position(hero_index)
             hero_name = self.hero_data[hero_index]["name"]
             await self.send_status(f"Processing {hero_name} ({hero_index + 1}/{total_heroes})")
             self.controller.move_mouse(hero_pos[0], hero_pos[1])
             await asyncio.sleep(1.0)
-            
-            if options.extract_abilities:
-                for ability_index in range(4):
-                    if not await self.capture_ability_tooltip(hero_index, ability_index):
-                        return False
-            
-            if options.extract_stats:
-                for stat_index in range(3):
-                    if not await self.capture_stat_tooltip(hero_index, stat_index):
-                        return False
-        
+
+            for ability_index in range(4):
+                if not await self.capture_ability_tooltip(hero_index, ability_index):
+                    return False
+
         await self.send_status("Extraction loop completed!")
         return True
 
-    async def extract_hero_data(self, options: ExtractionOptions):
+    async def run_item_extraction_loop(self):
+        for tab in self.item_tabs:
+            if self.controller.should_stop():
+                return False
+
+            tab_name = tab["tab_name"]
+            tab_click_x, tab_click_y = tab["tab_click_position"]
+            await self.send_status(f"Switching to item tab: {tab_name}")
+            self.controller.move_mouse(tab_click_x, tab_click_y)
+            await asyncio.sleep(0.15)
+            self.controller.click(tab_click_x, tab_click_y)
+            await asyncio.sleep(0.75)
+
+            for item in tab["items"]:
+                if not await self.capture_item_tooltip(
+                    item["item_id"], item["item_name"], item["hover_position"]
+                ):
+                    return False
+
+        await self.send_status("Extraction loop completed!")
+        return True
+
+    async def extract_tooltips(self, options: ExtractionOptions):
+        if options.extraction_mode == "items":
+            if not await self.navigate_to_item_shop():
+                return False
+            return await self.run_item_extraction_loop()
+
         if not await self.navigate_to_hero_selection():
             return False
-        return await self.run_extraction_loop(options)
+        return await self.run_ability_extraction_loop()
 
     def cleanup(self):
         self.controller.cleanup()
@@ -1092,9 +1200,15 @@ def get_default_game_path(platform_override: str = "auto"):
 
 
 async def main_cli():
-    parser = argparse.ArgumentParser(description='Deadlock Hero Image Extractor')
-    parser.add_argument('--abilities', action='store_true', help='Extract hero abilities')
-    parser.add_argument('--stats', action='store_true', help='Extract hero stats')
+    parser = argparse.ArgumentParser(description='Deadlock Tooltip Image Extractor')
+    parser.add_argument(
+        '--mode',
+        type=str,
+        default='ability',
+        choices=sorted(EXTRACTION_MODES),
+        help='Extraction mode: ability or items',
+    )
+
     parser.add_argument('--game-path', type=str, help='Path to game executable')
     parser.add_argument(
         '--platform',
@@ -1132,9 +1246,8 @@ async def main_cli():
         help='Run in CLI/headless mode without the web dashboard (default behavior).',
     )
     args = parser.parse_args()
-    
-    extract_abilities = args.abilities or not (args.abilities or args.stats)
-    options = ExtractionOptions(extract_abilities, args.stats)
+
+    options = ExtractionOptions(args.mode)
 
     try:
         display_resolution = parse_display_resolution(
@@ -1143,20 +1256,23 @@ async def main_cli():
         )
     except ValueError as exc:
         parser.error(str(exc))
-    
+
     game_path = args.game_path or get_default_game_path(args.platform)
-    
+
     launcher = DeadlockLauncher(
         game_path,
         platform_override=args.platform,
         launch_mode=args.launch_mode,
         steam_app_id=args.steam_app_id,
     )
-    extractor = HeroImageExtractor(display_resolution=display_resolution)
-    
+    extractor = HeroImageExtractor(
+        display_resolution=display_resolution,
+        extraction_mode=options.extraction_mode,
+    )
+
     try:
         if await launcher.launch_game():
-            if not await extractor.extract_hero_data(options):
+            if not await extractor.extract_tooltips(options):
                 print("Extraction stopped.")
         else:
             print("Failed to launch game.")

@@ -2,6 +2,8 @@ import pytest
 
 from deadlock_hero_ability_statistics_image_extractor.main import (
     DeadlockLauncher,
+    ExtractionOptions,
+    HeroImageExtractor,
     _parse_xdotool_window_geometry,
     _parse_xrandr_primary_resolution,
     validate_input_automation_environment,
@@ -76,3 +78,27 @@ SCREEN=1
 def test_parse_xdotool_window_geometry_rejects_invalid_input():
     assert _parse_xdotool_window_geometry("X=0\nY=0\nWIDTH=0\nHEIGHT=1440") is None
     assert _parse_xdotool_window_geometry("X=0\nY=0\nWIDTH=1920") is None
+
+
+def test_extraction_options_allows_only_ability_and_items_modes():
+    assert ExtractionOptions("ability").extraction_mode == "ability"
+    assert ExtractionOptions("items").extraction_mode == "items"
+
+    with pytest.raises(ValueError, match="Invalid extraction mode"):
+        ExtractionOptions("stats")
+
+
+def test_model_paths_are_mode_specific():
+    ability_paths = HeroImageExtractor._model_paths_for_mode("ability")
+    item_paths = HeroImageExtractor._model_paths_for_mode("items")
+
+    assert [str(path) for path in ability_paths] == [
+        "models/abilities/best.pt",
+        "runs/abilities/segment/train/weights/best.pt",
+        "runs/segment/train/weights/best.pt",
+        "runs/detect/train/weights/best.pt",
+    ]
+    assert [str(path) for path in item_paths] == [
+        "models/items/best.pt",
+        "runs/items/segment/train/weights/best.pt",
+    ]

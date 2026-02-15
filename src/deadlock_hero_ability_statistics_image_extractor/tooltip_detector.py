@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image
 from ultralytics import YOLO
 
 try:
@@ -14,11 +14,18 @@ except Exception:  # pragma: no cover - depends on host display environment
 
 
 class TooltipDetector:
-    def __init__(self, debug: bool = False):
-        self.model_paths = [
+    def __init__(
+        self,
+        debug: bool = False,
+        model_paths: Optional[Sequence[Path]] = None,
+    ):
+        default_model_paths = [
+            Path("models/abilities/best.pt"),
+            Path("runs/abilities/segment/train/weights/best.pt"),
             Path("runs/segment/train/weights/best.pt"),
             Path("runs/detect/train/weights/best.pt"),
         ]
+        self.model_paths = list(model_paths) if model_paths is not None else default_model_paths
         self.model_path: Optional[Path] = None
         self.model = None
         self.debug = debug
@@ -53,6 +60,44 @@ class TooltipDetector:
 
         if x2 <= x1 or y2 <= y1:
             return None
+
+        return (x1, y1, x2 - x1, y2 - y1)
+
+    @staticmethod
+    def _union_bbox_xywh(
+        bbox_a: Tuple[int, int, int, int], bbox_b: Tuple[int, int, int, int]
+    ) -> Tuple[int, int, int, int]:
+        ax, ay, aw, ah = bbox_a
+        bx, by, bw, bh = bbox_b
+
+        x1 = min(ax, bx)
+        y1 = min(ay, by)
+        x2 = max(ax + aw, bx + bw)
+        y2 = max(ay + ah, by + bh)
+        return (x1, y1, x2 - x1, y2 - y1)
+
+    @staticmethod
+    def _expand_bbox_xywh(
+        bbox_xywh: Tuple[int, int, int, int],
+        image_width: int,
+        image_height: int,
+        min_padding_px: int = 4,
+        padding_ratio: float = 0.02,
+    ) -> Tuple[int, int, int, int]:
+        x, y, w, h = bbox_xywh
+        if w <= 0 or h <= 0:
+            return bbox_xywh
+
+        pad_x = max(min_padding_px, int(round(w * padding_ratio)))
+        pad_y = max(min_padding_px, int(round(h * padding_ratio)))
+
+        x1 = max(0, x - pad_x)
+        y1 = max(0, y - pad_y)
+        x2 = min(image_width, x + w + pad_x)
+        y2 = min(image_height, y + h + pad_y)
+
+        if x2 <= x1 or y2 <= y1:
+            return bbox_xywh
 
         return (x1, y1, x2 - x1, y2 - y1)
 
@@ -140,7 +185,7 @@ class TooltipDetector:
                 if polygon_bbox is not None:
                     polygon = candidate_polygon
                     has_mask = True
-                    bbox_xywh = polygon_bbox
+                    bbox_xywh = TooltipDetector._union_bbox_xywh(bbox_xywh, polygon_bbox)
 
             x, y, w, h = bbox_xywh
             detections.append(
@@ -180,7 +225,7 @@ class TooltipDetector:
         return horizontal_gap <= max_gap and vertical_gap <= max_gap
 
     def _merge_detections(
-        self, detections: Sequence[Dict[str, Any]]
+        self, detections: Sequence[Dict[str, Any]], image_shape: Optional[Tuple[int, int, int]] = None
     ) -> Optional[Dict[str, Any]]:
         if not detections:
             return None
@@ -223,6 +268,17 @@ class TooltipDetector:
         y2 = max(int(detection["bbox_xyxy"][3]) for detection in selected)
 
         bbox_xywh = (x1, y1, x2 - x1, y2 - y1)
+        if image_shape is not None and len(image_shape) >= 2:
+            image_height, image_width = image_shape[:2]
+            bbox_xywh = self._expand_bbox_xywh(
+                bbox_xywh,
+                image_width=image_width,
+                image_height=image_height,
+            )
+            x1, y1, w, h = bbox_xywh
+            x2 = x1 + w
+            y2 = y1 + h
+
         return {
             "confidence": float(best_detection["confidence"]),
             "bbox_xywh": bbox_xywh,
@@ -242,58 +298,7 @@ class TooltipDetector:
         components: Optional[Sequence[Dict[str, Any]]] = None,
     ) -> Image.Image:
         x, y, w, h = bbox_xywh
-        tooltip_image = screenshot.crop((x, y, x + w, y + h)).convert("RGBA")
-
-        if components:
-            alpha_mask = Image.new("L", (w, h), 0)
-            draw = ImageDraw.Draw(alpha_mask)
-            has_alpha_content = False
-
-            for component in components:
-                component_polygon = component.get("polygon")
-                if component_polygon is not None:
-                    shifted_polygon = [
-                        (float(px) - x, float(py) - y) for px, py in component_polygon
-                    ]
-                    if len(shifted_polygon) >= 3:
-                        draw.polygon(shifted_polygon, fill=255)
-                        has_alpha_content = True
-                        continue
-
-                component_bbox = component.get("bbox_xywh")
-                if not component_bbox or len(component_bbox) != 4:
-                    continue
-
-                cx, cy, cw, ch = component_bbox
-                left = max(0, int(cx) - x)
-                top = max(0, int(cy) - y)
-                right = min(w, int(cx) + int(cw) - x)
-                bottom = min(h, int(cy) + int(ch) - y)
-                if right > left and bottom > top:
-                    draw.rectangle((left, top, right - 1, bottom - 1), fill=255)
-                    has_alpha_content = True
-
-            if has_alpha_content:
-                tooltip_image.putalpha(alpha_mask)
-            else:
-                tooltip_image.putalpha(255)
-            return tooltip_image
-
-        if polygon is None:
-            tooltip_image.putalpha(255)
-            return tooltip_image
-
-        shifted_polygon = [(float(px) - x, float(py) - y) for px, py in polygon]
-        if len(shifted_polygon) < 3:
-            tooltip_image.putalpha(255)
-            return tooltip_image
-
-        alpha_mask = Image.new("L", (w, h), 0)
-        draw = ImageDraw.Draw(alpha_mask)
-        draw.polygon(shifted_polygon, fill=255)
-        tooltip_image.putalpha(alpha_mask)
-
-        return tooltip_image
+        return screenshot.crop((x, y, x + w, y + h)).convert("RGB")
 
     @staticmethod
     def _require_pyautogui() -> Any:
@@ -327,7 +332,7 @@ class TooltipDetector:
         for result in results:
             all_detections.extend(self._extract_detections(result, screenshot.shape))
 
-        merged_detection = self._merge_detections(all_detections)
+        merged_detection = self._merge_detections(all_detections, image_shape=screenshot.shape)
 
         if merged_detection is not None:
             print(
@@ -421,11 +426,11 @@ class TooltipDetector:
             screenshot_provider=screenshot_provider,
         )
 
-    async def capture_stat_tooltip(
+    async def capture_item_tooltip(
         self,
         hover_position: Tuple[int, int],
-        hero_id: int,
-        stat_name: str,
+        item_id: int,
+        item_name: str,
         wait_time: float = 0.7,
         move_mouse_callback: Optional[Callable[[int, int], None]] = None,
         screenshot_provider: Optional[Callable[[], Image.Image]] = None,

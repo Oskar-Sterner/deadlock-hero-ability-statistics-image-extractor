@@ -1,7 +1,7 @@
-# Path to the dataset directory
-path: ./yolo_dataset
+# Legacy compatibility dataset path (abilities)
+path: ./yolo_dataset/abilities
 train: images
-val: images # Add this line
+val: images
 
 # Class names
 names:

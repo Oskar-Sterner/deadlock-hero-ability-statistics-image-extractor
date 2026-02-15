@@ -1,7 +1,8 @@
 [project]
 name = "deadlock-hero-ability-statistics-image-extractor"
 version = "0.1.0"
-description = "A cross-platform Python tool to automatically launch Deadlock and extract hero ability images and stat images on Windows and Linux."
+description = "A cross-platform Python tool to automatically launch Deadlock and extract hero ability tooltips or item tooltips on Windows and Linux."
+
 authors = [
     {name = "Oskar Sterner", email = "oskar.lr.sterner@gmail.com"}
 ]
