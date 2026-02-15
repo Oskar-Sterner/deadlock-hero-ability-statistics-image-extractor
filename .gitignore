@@ -9,8 +9,6 @@ __pycache__/
 
 # YOLO files
 yolo_dataset/labels.cache
-yolov8n.pt
-runs/
 
 # IDE files
 .idea/
@@ -22,4 +20,5 @@ build/
 *.egg-info/
 
 # Other
-extracted_images/
+.pytest_cache
+.ruff_cache

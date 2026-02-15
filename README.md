@@ -4,14 +4,17 @@ This is a wip project and I do not guarantee it will work. This is under constan
 
 # Deadlock Hero Ability & Statistics Image Extractor
 
-A Python tool with both CLI and web interfaces to automatically launch Deadlock and extract hero ability and statistics tooltips using a state-of-the-art **YOLOv8 object detection model**.
+A Python tool with both CLI and web interfaces to automatically launch Deadlock and extract hero ability and statistics tooltips using a custom-trained **YOLOv8 segmentation model**.
 
 ## Features
 
 - **Cross-Platform Support**: Works on **Windows** and **Linux**.
 - **Dual Interface**: Use the modern web dashboard or the powerful command-line tool.
 - **Automatic Game Integration**: Launches Deadlock and navigates to the hero selection screen.
-- **State-of-the-Art Detection**: Utilizes a custom-trained **YOLOv8 model** for highly accurate, real-time tooltip detection.
+- **Runtime Launch Controls**: Configure platform override, launch mode (`auto`/`direct`/`steam`), and custom game path.
+- **Resolution-Aware Automation**: Auto-detects primary display resolution for click scaling, with optional manual overrides.
+- **State-of-the-Art Detection**: Utilizes a custom-trained **YOLOv8 segmentation model** for highly accurate, real-time tooltip detection.
+- **Shape-Preserving Crops**: Exports tooltip images as transparent PNGs so non-rectangular tooltip edges are preserved.
 - **Train Your Own Model**: Includes a complete workflow for labeling your own data and training a custom detector.
 - **Flexible Extraction**: Choose to extract hero abilities, statistics, or both.
 - **Real-time Updates**: The web dashboard provides live log updates and image previews.
@@ -53,6 +56,14 @@ uv run deadlock-extractor-web
 
 Then, open your browser to **`http://localhost:3000`**. From the dashboard, you can start/stop the process, select what to extract, and see live results.
 
+Use **Settings** to configure:
+
+- platform override (`auto`, `windows`, `linux`)
+- launch mode (`auto`, `direct`, `steam`)
+- game executable path
+- steam app id (used for steam launch mode)
+- optional display width/height override for coordinate scaling
+
 ### Command-Line Interface
 
 ```bash
@@ -64,6 +75,18 @@ uv run deadlock-extractor --abilities
 
 # Specify a custom game path
 uv run deadlock-extractor --game-path "/path/to/your/deadlock/executable"
+
+# Linux + Proton example (prefer steam launch mode)
+uv run deadlock-extractor \
+  --platform linux \
+  --launch-mode steam \
+  --game-path "/mnt/nvme2tb/SteamLibrary/steamapps/common/Deadlock/game/bin/win64/deadlock.exe"
+
+# Optional manual display override for click scaling
+uv run deadlock-extractor --display-width 2560 --display-height 1440
+
+# Explicit headless/CLI mode (same behavior as default CLI)
+uv run deadlock-extractor --headless --abilities
 ```
 
 ---
@@ -74,69 +97,106 @@ The extractor uses a modern computer vision pipeline for detection.
 
 1.  **Launch & Navigate**: The tool launches Deadlock, waits for the main menu, and automatically navigates to the hero selection screen.
 2.  **Hero Iteration**: It iterates through each hero, hovering the mouse over abilities and stats to trigger tooltips.
-3.  **YOLOv8 Detection**: For each frame, it takes a screenshot and feeds it to the custom-trained YOLOv8 model (`yolov8n.pt`). The model instantly returns the precise bounding box of any tooltip it finds.
-4.  **Capture & Save**: The detected region is cropped from the screenshot and saved to the `extracted_images/` directory.
+3.  **YOLOv8 Segmentation**: For each frame, it takes a screenshot and feeds it to the custom-trained YOLOv8 segmentation model (`yolov8n-seg.pt` for training). The runtime model returns the best tooltip mask/polygon and confidence.
+4.  **Capture & Save**: The tooltip is cropped to the mask bounding region and saved as a transparent PNG in `extracted_images/`.
 
 ---
 
-## Training Your Own Model
+## Training Your Own Segmentation Model
 
-The power of this tool is its custom-trained model. You can improve it or adapt it to game updates by following this workflow.
+The model is designed to be re-trained whenever tooltip visuals change. Use this workflow to create polygon labels and train segmentation weights.
 
 ### 1\. Installation for Training
 
-You will need the `labelImg` tool for annotating images. Install it into your environment:
+Install development dependencies (includes `labelme` for polygon annotation):
 
 ```bash
-# Install development dependencies, including labelImg
 uv pip install -e ".[dev]"
 ```
 
-If you encounter errors with the uv run train-tooltip-detector. Run this:
+If your virtual environment is corrupted or from another OS, recreate it and reinstall:
 
 ```bash
-# Install development dependencies, including labelImg
-uv pip install -e ."
+uv venv -p python3.9
+uv sync
+uv pip install -e ".[dev]"
 ```
 
-and try again. If that fails you could run this:
+### 2\. Data Collection & Polygon Annotation (LabelMe)
+
+1. Create `yolo_dataset/images` and add many in-game screenshots with tooltip variation.
+2. Create `yolo_dataset/annotations_labelme` for LabelMe JSON annotations.
+3. Launch LabelMe:
 
 ```bash
-# Install development dependencies, including labelImg
-uv run python src/deadlock_hero_ability_statistics_image_extractor/train_yolo.py
+# Linux/macOS
+uv run labelme
 ```
 
-### 2\. Data Collection & Annotation
+```powershell
+# Windows (PowerShell)
+.\.venv\Scripts\labelme.exe
+```
 
-- Create a `yolo_dataset/images` folder.
-- Add dozens of in-game screenshots to this folder. Capture a wide variety of tooltips in different positions.
-- Launch the annotation tool:
-  ```powershell
-  # On Windows
-  .\.venv\Scripts\labelImg.exe
-  ```
-- In `labelImg`:
-  1.  Open your `yolo_dataset/images` directory.
-  2.  Set the save directory to a new `yolo_dataset/labels` folder.
-  3.  **Crucially, set the format to `YOLO`**.
-  4.  Draw a box around every tooltip and label it `tooltip`.
-  5.  Save your work. This creates a `.txt` file for each labeled image.
+4. In LabelMe:
+   - Open `yolo_dataset/images`.
+   - Set output directory to `yolo_dataset/annotations_labelme`.
+   - Use the **Polygon** tool and trace the tooltip edge.
+   - Use label name `tooltip`.
+   - Save each annotation as JSON.
 
-### 3\. Training
+### 3\. Convert LabelMe JSON -> YOLO Segmentation Labels
 
-- Create a `tooltip_dataset.yaml` file in the project root:
+Convert the annotations into YOLO segmentation `.txt` labels:
 
-  ```yaml
-  path: ./yolo_dataset
-  train: images
-  val: images
+```bash
+uv run convert-labelme-yolo-seg \
+  --input yolo_dataset/annotations_labelme \
+  --output yolo_dataset/labels \
+  --class-map tooltip=0
+```
 
-  names:
-    0: tooltip
-  ```
+The converter writes labels in YOLO segmentation format:
 
-- Run the training script. This will take time and uses your CPU by default.
-  ```bash
-  uv run train-tooltip-detector
-  ```
-- Your new model will be saved in the `runs/detect/train/weights/best.pt` directory. Update the path in `tooltip_detector.py` if a new folder (e.g., `train`) is created.
+```text
+class x1 y1 x2 y2 x3 y3 ...
+```
+
+Where all coordinates are normalized to `[0, 1]`.
+
+### 4\. Train the Segmentation Model
+
+Ensure `tooltip_dataset.yaml` is present in the project root:
+
+```yaml
+path: ./yolo_dataset
+train: images
+val: images
+
+names:
+  0: tooltip
+```
+
+Run training with segmentation defaults:
+
+```bash
+uv run train-tooltip-detector
+```
+
+Optional overrides:
+
+```bash
+uv run train-tooltip-detector --model yolov8n-seg.pt --epochs 100 --imgsz 768 --device 0
+```
+
+Expected output weights path:
+
+```text
+runs/segment/train/weights/best.pt
+```
+
+Runtime fallback is supported for older detect weights at `runs/detect/train/weights/best.pt`, but the segmentation path is preferred.
+
+### 5\. Migration Note for Existing Labels
+
+Existing bounding-box labels should be fully relabeled as polygons. Do not rely on auto-converted box polygons for production-quality results.

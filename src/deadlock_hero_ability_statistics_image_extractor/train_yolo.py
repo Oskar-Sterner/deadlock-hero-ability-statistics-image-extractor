@@ -1,32 +1,74 @@
-from ultralytics import YOLO
+import argparse
 from pathlib import Path
+
+from ultralytics import YOLO
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Train YOLO tooltip segmentation model"
+    )
+    parser.add_argument(
+        "--data",
+        type=Path,
+        default=Path(__file__).resolve().parent.parent.parent / "tooltip_dataset.yaml",
+        help="Path to YOLO dataset yaml file",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="yolov8n-seg.pt",
+        help="Base YOLO model weights",
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=50,
+        help="Number of training epochs",
+    )
+    parser.add_argument(
+        "--imgsz",
+        type=int,
+        default=640,
+        help="Training image size",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cpu",
+        help="Training device (e.g. cpu, 0)",
+    )
+    return parser
+
 
 def main():
     """
-    Trains a YOLOv8 model on the custom tooltip dataset.
+    Trains a YOLOv8 segmentation model on the custom tooltip dataset.
     """
-    # Load a pre-trained YOLOv8 model (yolov8n.pt is the smallest and fastest)
-    model = YOLO('yolov8n.pt')
+    parser = build_parser()
+    args = parser.parse_args()
 
-    # Get the path to the dataset configuration file
-    config_path = Path(__file__).resolve().parent.parent.parent / 'tooltip_dataset.yaml'
+    model = YOLO(args.model)
 
-    print(f"Starting training with dataset config: {config_path}")
+    config_path = args.data
 
-    # Train the model
-    # data: path to the .yaml file
-    # epochs: how many times to go through the dataset (more is better, but takes longer)
-    # imgsz: resize images to this size for training
-    # device: 0 for GPU, 'cpu' for CPU
-    results = model.train(
+    print("Starting YOLO segmentation training")
+    print(f"Base model: {args.model}")
+    print(f"Dataset config: {config_path}")
+    print(
+        f"Training args: epochs={args.epochs}, imgsz={args.imgsz}, device={args.device}"
+    )
+
+    model.train(
         data=str(config_path),
-        epochs=50,
-        imgsz=640,
-        device='cpu'  # Use 0 for CUDA GPU, or 'cpu' if you don't have one
+        epochs=args.epochs,
+        imgsz=args.imgsz,
+        device=args.device,
     )
 
     print("Training complete!")
-    print("Model saved to the 'runs' directory.")
+    print("Expected segmentation weights path: runs/segment/train/weights/best.pt")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

@@ -18,7 +18,7 @@ dependencies = [
     "jinja2>=3.1.0",
     "python-multipart>=0.0.6",
     "requests>=2.28.0",
-    "opencv-python>=4.8.0",
+    "opencv-python-headless>=4.8.0",
     "ultralytics"
 ]
 
@@ -27,13 +27,14 @@ dev = [
     "pytest>=7.0.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
-    "labelImg"
+    "labelme"
 ]
 
 [project.scripts]
 deadlock-extractor = "deadlock_hero_ability_statistics_image_extractor.main:main"
 deadlock-extractor-web = "deadlock_hero_ability_statistics_image_extractor.web_app:run_web_app"
 train-tooltip-detector = "deadlock_hero_ability_statistics_image_extractor.train_yolo:main"
+convert-labelme-yolo-seg = "deadlock_hero_ability_statistics_image_extractor.convert_labelme_to_yolo_seg:main"
 
 [build-system]
 requires = ["hatchling"]

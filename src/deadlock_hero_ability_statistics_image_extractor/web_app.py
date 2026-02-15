@@ -1,19 +1,27 @@
 import asyncio
 import json
-import threading
 import requests
-import platform
 from pathlib import Path
-from typing import Dict, List
+from typing import List, Optional
 
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Form
+from fastapi import FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .main import DeadlockLauncher, HeroImageExtractor, ExtractionOptions, get_default_game_path
-
+from .main import (
+    DEFAULT_STEAM_APP_ID,
+    DeadlockLauncher,
+    ExtractionOptions,
+    HeroImageExtractor,
+    detect_host_platform,
+    detect_primary_display_resolution,
+    get_candidate_game_paths,
+    get_default_game_path,
+    parse_display_resolution,
+    resolve_platform,
+)
 
 app = FastAPI()
 
@@ -41,13 +49,18 @@ class ConnectionManager:
         for connection in self.active_connections:
             try:
                 await connection.send_text(json.dumps(message))
-            except:
+            except Exception:
                 pass
 
 manager = ConnectionManager()
 
 settings = {
-    "game_path": get_default_game_path()
+    "platform_override": "auto",
+    "launch_mode": "auto",
+    "game_path": get_default_game_path("auto"),
+    "steam_app_id": DEFAULT_STEAM_APP_ID,
+    "display_width": "",
+    "display_height": "",
 }
 
 extraction_state = {
@@ -123,6 +136,12 @@ def fetch_hero_data_web():
 
 hero_data, api_success = fetch_hero_data_web()
 
+def _parse_optional_int(value: str) -> Optional[int]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    return int(text)
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
     abilities_dir = images_dir / "abilities"
@@ -160,7 +179,7 @@ async def dashboard(request: Request):
                     "name": stat_name
                 }
     
-    current_platform = platform.system()
+    current_platform = detect_host_platform()
     
     return templates.TemplateResponse("index.html", {
         "request": request,
@@ -179,38 +198,64 @@ async def get_hero_data():
         "api_success": api_success,
         "count": len(hero_data),
         "source": "API" if api_success else "Fallback",
-        "platform": platform.system()
+        "platform": detect_host_platform()
     }
 
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
-    current_platform = platform.system()
-    default_paths = []
-    
-    if current_platform == "Windows":
-        default_paths = [
-            r"C:\Program Files (x86)\Steam\steamapps\common\Deadlock\game\bin\win64\deadlock.exe",
-            r"D:\Steam\steamapps\common\Deadlock\game\bin\win64\deadlock.exe",
-            r"F:\SteamLibrary\steamapps\common\Deadlock\game\bin\win64\deadlock.exe"
-        ]
-    elif current_platform == "Linux":
-        home = str(Path.home())
-        default_paths = [
-            f"{home}/.steam/steam/steamapps/common/Deadlock/game/bin/linuxsteamrt64/deadlock",
-            f"{home}/.local/share/Steam/steamapps/common/Deadlock/game/bin/linuxsteamrt64/deadlock",
-            "/usr/games/steam/steamapps/common/Deadlock/game/bin/linuxsteamrt64/deadlock"
-        ]
-    
+    host_platform = detect_host_platform()
+    selected_platform = settings["platform_override"]
+    effective_platform = resolve_platform(selected_platform)
+    default_paths = [str(path) for path in get_candidate_game_paths(selected_platform)]
+    detected_width, detected_height = detect_primary_display_resolution()
+
     return templates.TemplateResponse("settings.html", {
         "request": request,
+        "host_platform": host_platform,
+        "selected_platform": selected_platform,
+        "effective_platform": effective_platform,
+        "selected_launch_mode": settings["launch_mode"],
         "game_path": settings["game_path"],
-        "platform": current_platform,
-        "default_paths": default_paths
+        "steam_app_id": settings["steam_app_id"],
+        "display_width": settings["display_width"],
+        "display_height": settings["display_height"],
+        "detected_width": detected_width,
+        "detected_height": detected_height,
+        "default_paths": default_paths,
     })
 
 @app.post("/settings")
-async def update_settings(game_path: str = Form(...)):
-    settings["game_path"] = game_path
+async def update_settings(
+    platform_override: str = Form("auto"),
+    launch_mode: str = Form("auto"),
+    game_path: str = Form(""),
+    steam_app_id: str = Form(DEFAULT_STEAM_APP_ID),
+    display_width: str = Form(""),
+    display_height: str = Form(""),
+):
+    platform_override = (platform_override or "auto").strip().lower()
+    launch_mode = (launch_mode or "auto").strip().lower()
+    if launch_mode not in {"auto", "direct", "steam"}:
+        raise HTTPException(status_code=400, detail="Invalid launch mode.")
+
+    try:
+        resolve_platform(platform_override)
+        parsed_width = _parse_optional_int(display_width)
+        parsed_height = _parse_optional_int(display_height)
+        parse_display_resolution(parsed_width, parsed_height)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    game_path_value = (game_path or "").strip() or get_default_game_path(platform_override)
+    steam_app_id_value = str(steam_app_id or "").strip() or DEFAULT_STEAM_APP_ID
+
+    settings["platform_override"] = platform_override
+    settings["launch_mode"] = launch_mode
+    settings["game_path"] = game_path_value
+    settings["steam_app_id"] = steam_app_id_value
+    settings["display_width"] = "" if parsed_width is None else str(parsed_width)
+    settings["display_height"] = "" if parsed_height is None else str(parsed_height)
+
     return RedirectResponse(url="/", status_code=303)
 
 @app.post("/start-extraction")
@@ -223,6 +268,17 @@ async def start_extraction(request: Request):
     extract_stats = body.get("extract_stats", False)
     
     options = ExtractionOptions(extract_abilities, extract_stats)
+
+    try:
+        display_width = _parse_optional_int(settings["display_width"])
+        display_height = _parse_optional_int(settings["display_height"])
+        display_resolution = parse_display_resolution(display_width, display_height)
+    except ValueError as exc:
+        return {"status": "error", "message": str(exc)}
+
+    game_path = settings["game_path"].strip() or get_default_game_path(
+        settings["platform_override"]
+    )
     
     extraction_state["running"] = True
     
@@ -231,8 +287,30 @@ async def start_extraction(request: Request):
     
     async def run_extraction():
         try:
-            launcher = DeadlockLauncher(settings["game_path"], websocket_callback)
-            extractor = HeroImageExtractor(websocket_callback=websocket_callback, debug=True)
+            launcher = DeadlockLauncher(
+                game_path,
+                websocket_callback,
+                platform_override=settings["platform_override"],
+                launch_mode=settings["launch_mode"],
+                steam_app_id=settings["steam_app_id"],
+            )
+            extractor = HeroImageExtractor(
+                websocket_callback=websocket_callback,
+                debug=True,
+                display_resolution=display_resolution,
+            )
+
+            await websocket_callback(
+                {
+                    "type": "status",
+                    "message": (
+                        "Runtime settings: "
+                        f"platform={launcher.platform_name}, "
+                        f"launch_mode={launcher.launch_mode}, "
+                        f"display={extractor.display_resolution[0]}x{extractor.display_resolution[1]}"
+                    ),
+                }
+            )
             
             extraction_state["launcher"] = launcher
             extraction_state["extractor"] = extractor
@@ -276,7 +354,7 @@ async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
         while True:
-            data = await websocket.receive_text()
+            await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 

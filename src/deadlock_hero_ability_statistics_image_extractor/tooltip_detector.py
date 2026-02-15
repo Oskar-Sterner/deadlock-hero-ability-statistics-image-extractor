@@ -1,94 +1,438 @@
-import cv2
-import numpy as np
-from pathlib import Path
-from typing import Optional, Tuple
-from PIL import Image
-import pyautogui
-import time
 import asyncio
+import time
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+
+import numpy as np
+from PIL import Image, ImageDraw
 from ultralytics import YOLO
 
+try:
+    import pyautogui
+except Exception:  # pragma: no cover - depends on host display environment
+    pyautogui = None
+
+
 class TooltipDetector:
-    def __init__(self, debug=False):
-        # The training script saves the best model in runs/detect/train/weights/best.pt
-        self.model_path = Path("runs/detect/train/weights/best.pt")
+    def __init__(self, debug: bool = False):
+        self.model_paths = [
+            Path("runs/segment/train/weights/best.pt"),
+            Path("runs/detect/train/weights/best.pt"),
+        ]
+        self.model_path: Optional[Path] = None
         self.model = None
-        self.load_model()
         self.debug = debug
+        self.load_model()
 
-    def load_model(self):
-        print("Loading YOLOv8 tooltip detection model...")
-        if self.model_path.exists():
+    @staticmethod
+    def _to_numpy(value: Any) -> np.ndarray:
+        if value is None:
+            return np.asarray([])
+        if hasattr(value, "cpu"):
+            value = value.cpu()
+        if hasattr(value, "numpy"):
+            value = value.numpy()
+        return np.asarray(value)
+
+    @staticmethod
+    def _bbox_from_xyxy(
+        xyxy: Sequence[float], image_width: int, image_height: int
+    ) -> Optional[Tuple[int, int, int, int]]:
+        if len(xyxy) != 4:
+            return None
+
+        x1 = int(round(float(xyxy[0])))
+        y1 = int(round(float(xyxy[1])))
+        x2 = int(round(float(xyxy[2])))
+        y2 = int(round(float(xyxy[3])))
+
+        x1 = max(0, min(x1, image_width))
+        y1 = max(0, min(y1, image_height))
+        x2 = max(0, min(x2, image_width))
+        y2 = max(0, min(y2, image_height))
+
+        if x2 <= x1 or y2 <= y1:
+            return None
+
+        return (x1, y1, x2 - x1, y2 - y1)
+
+    @staticmethod
+    def _bbox_from_polygon(
+        polygon: np.ndarray, image_width: int, image_height: int
+    ) -> Optional[Tuple[int, int, int, int]]:
+        polygon = np.asarray(polygon, dtype=float)
+        if polygon.ndim != 2 or polygon.shape[1] != 2 or len(polygon) < 3:
+            return None
+
+        x1 = int(np.floor(np.min(polygon[:, 0])))
+        y1 = int(np.floor(np.min(polygon[:, 1])))
+        x2 = int(np.ceil(np.max(polygon[:, 0])))
+        y2 = int(np.ceil(np.max(polygon[:, 1])))
+
+        x1 = max(0, min(x1, image_width))
+        y1 = max(0, min(y1, image_height))
+        x2 = max(0, min(x2, image_width))
+        y2 = max(0, min(y2, image_height))
+
+        if x2 <= x1 or y2 <= y1:
+            return None
+
+        return (x1, y1, x2 - x1, y2 - y1)
+
+    def load_model(self) -> None:
+        print("Loading YOLO tooltip model (segmentation-first)...")
+
+        for model_path in self.model_paths:
+            if not model_path.exists():
+                continue
+
             try:
-                self.model = YOLO(self.model_path)
-                print("YOLOv8 model loaded successfully.")
+                self.model = YOLO(model_path)
+                self.model_path = model_path
+                print(f"YOLO model loaded successfully from '{model_path}'.")
+                return
             except Exception as e:
-                print(f"Error loading YOLOv8 model: {e}")
-        else:
-            print(f"WARNING: Trained model not found at '{self.model_path}'.")
-            print("Please run the YOLO training script first.")
+                print(f"Error loading YOLO model from '{model_path}': {e}")
 
-    def detect_with_ml_model(self, screenshot: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
+        searched_paths = ", ".join(str(path) for path in self.model_paths)
+        print(f"WARNING: Trained model not found at: {searched_paths}")
+        print("Please run the YOLO training script first.")
+
+    @staticmethod
+    def _extract_detections(
+        result: Any, image_shape: Tuple[int, int, int]
+    ) -> List[Dict[str, Any]]:
+        boxes = getattr(result, "boxes", None)
+        if boxes is None:
+            return []
+
+        boxes_xyxy = TooltipDetector._to_numpy(getattr(boxes, "xyxy", None))
+        if boxes_xyxy.size == 0:
+            return []
+
+        boxes_xyxy = np.atleast_2d(boxes_xyxy)
+
+        confidences = TooltipDetector._to_numpy(getattr(boxes, "conf", None)).reshape(-1)
+        if confidences.size < len(boxes_xyxy):
+            padding = len(boxes_xyxy) - confidences.size
+            confidences = np.pad(confidences, (0, padding), mode="constant")
+
+        image_height, image_width = image_shape[:2]
+
+        masks = getattr(result, "masks", None)
+        mask_polygons = getattr(masks, "xy", None) if masks is not None else None
+
+        detections: List[Dict[str, Any]] = []
+        for index, box_xyxy in enumerate(boxes_xyxy):
+            bbox_xywh = TooltipDetector._bbox_from_xyxy(box_xyxy, image_width, image_height)
+            if bbox_xywh is None:
+                continue
+
+            confidence = float(confidences[index]) if confidences.size > index else 0.0
+            polygon = None
+            has_mask = False
+
+            if mask_polygons is not None and len(mask_polygons) > index:
+                candidate_polygon = np.asarray(mask_polygons[index], dtype=float)
+                polygon_bbox = TooltipDetector._bbox_from_polygon(
+                    candidate_polygon, image_width, image_height
+                )
+                if polygon_bbox is not None:
+                    polygon = candidate_polygon
+                    has_mask = True
+                    bbox_xywh = polygon_bbox
+
+            x, y, w, h = bbox_xywh
+            detections.append(
+                {
+                    "confidence": confidence,
+                    "bbox_xywh": bbox_xywh,
+                    "bbox_xyxy": (x, y, x + w, y + h),
+                    "region": bbox_xywh,
+                    "polygon": polygon,
+                    "has_mask": has_mask,
+                }
+            )
+
+        return detections
+
+    @staticmethod
+    def _select_best_detection(
+        result: Any, image_shape: Tuple[int, int, int]
+    ) -> Optional[Dict[str, Any]]:
+        detections = TooltipDetector._extract_detections(result, image_shape)
+        if not detections:
+            return None
+
+        return max(detections, key=lambda detection: detection["confidence"])
+
+    @staticmethod
+    def _boxes_are_close(
+        bbox_a_xyxy: Tuple[int, int, int, int],
+        bbox_b_xyxy: Tuple[int, int, int, int],
+        max_gap: int,
+    ) -> bool:
+        ax1, ay1, ax2, ay2 = bbox_a_xyxy
+        bx1, by1, bx2, by2 = bbox_b_xyxy
+
+        horizontal_gap = max(0, max(ax1, bx1) - min(ax2, bx2))
+        vertical_gap = max(0, max(ay1, by1) - min(ay2, by2))
+        return horizontal_gap <= max_gap and vertical_gap <= max_gap
+
+    def _merge_detections(
+        self, detections: Sequence[Dict[str, Any]]
+    ) -> Optional[Dict[str, Any]]:
+        if not detections:
+            return None
+
+        best_detection = max(detections, key=lambda detection: detection["confidence"])
+
+        best_w = int(best_detection["bbox_xywh"][2])
+        best_h = int(best_detection["bbox_xywh"][3])
+        proximity_gap = max(12, int(min(best_w, best_h) * 0.2))
+        confidence_floor = max(0.15, float(best_detection["confidence"]) * 0.35)
+
+        candidates = [
+            detection
+            for detection in detections
+            if float(detection["confidence"]) >= confidence_floor
+        ]
+
+        selected: List[Dict[str, Any]] = [best_detection]
+        changed = True
+        while changed:
+            changed = False
+            for detection in candidates:
+                if any(existing is detection for existing in selected):
+                    continue
+
+                if any(
+                    TooltipDetector._boxes_are_close(
+                        detection["bbox_xyxy"],
+                        existing["bbox_xyxy"],
+                        proximity_gap,
+                    )
+                    for existing in selected
+                ):
+                    selected.append(detection)
+                    changed = True
+
+        x1 = min(int(detection["bbox_xyxy"][0]) for detection in selected)
+        y1 = min(int(detection["bbox_xyxy"][1]) for detection in selected)
+        x2 = max(int(detection["bbox_xyxy"][2]) for detection in selected)
+        y2 = max(int(detection["bbox_xyxy"][3]) for detection in selected)
+
+        bbox_xywh = (x1, y1, x2 - x1, y2 - y1)
+        return {
+            "confidence": float(best_detection["confidence"]),
+            "bbox_xywh": bbox_xywh,
+            "bbox_xyxy": (x1, y1, x2, y2),
+            "region": bbox_xywh,
+            "polygon": best_detection["polygon"],
+            "has_mask": any(bool(detection["has_mask"]) for detection in selected),
+            "components": selected,
+            "component_count": len(selected),
+        }
+
+    @staticmethod
+    def _build_tooltip_image(
+        screenshot: Image.Image,
+        bbox_xywh: Tuple[int, int, int, int],
+        polygon: Optional[np.ndarray],
+        components: Optional[Sequence[Dict[str, Any]]] = None,
+    ) -> Image.Image:
+        x, y, w, h = bbox_xywh
+        tooltip_image = screenshot.crop((x, y, x + w, y + h)).convert("RGBA")
+
+        if components:
+            alpha_mask = Image.new("L", (w, h), 0)
+            draw = ImageDraw.Draw(alpha_mask)
+            has_alpha_content = False
+
+            for component in components:
+                component_polygon = component.get("polygon")
+                if component_polygon is not None:
+                    shifted_polygon = [
+                        (float(px) - x, float(py) - y) for px, py in component_polygon
+                    ]
+                    if len(shifted_polygon) >= 3:
+                        draw.polygon(shifted_polygon, fill=255)
+                        has_alpha_content = True
+                        continue
+
+                component_bbox = component.get("bbox_xywh")
+                if not component_bbox or len(component_bbox) != 4:
+                    continue
+
+                cx, cy, cw, ch = component_bbox
+                left = max(0, int(cx) - x)
+                top = max(0, int(cy) - y)
+                right = min(w, int(cx) + int(cw) - x)
+                bottom = min(h, int(cy) + int(ch) - y)
+                if right > left and bottom > top:
+                    draw.rectangle((left, top, right - 1, bottom - 1), fill=255)
+                    has_alpha_content = True
+
+            if has_alpha_content:
+                tooltip_image.putalpha(alpha_mask)
+            else:
+                tooltip_image.putalpha(255)
+            return tooltip_image
+
+        if polygon is None:
+            tooltip_image.putalpha(255)
+            return tooltip_image
+
+        shifted_polygon = [(float(px) - x, float(py) - y) for px, py in polygon]
+        if len(shifted_polygon) < 3:
+            tooltip_image.putalpha(255)
+            return tooltip_image
+
+        alpha_mask = Image.new("L", (w, h), 0)
+        draw = ImageDraw.Draw(alpha_mask)
+        draw.polygon(shifted_polygon, fill=255)
+        tooltip_image.putalpha(alpha_mask)
+
+        return tooltip_image
+
+    @staticmethod
+    def _require_pyautogui() -> Any:
+        if pyautogui is None:
+            raise RuntimeError(
+                "pyautogui is unavailable in this environment. "
+                "Tooltip capture requires an active GUI session."
+            )
+        return pyautogui
+
+    @staticmethod
+    def _take_screenshot(
+        screenshot_provider: Optional[Callable[[], Image.Image]] = None,
+    ) -> Image.Image:
+        if screenshot_provider is not None:
+            screenshot = screenshot_provider()
+            if isinstance(screenshot, Image.Image):
+                return screenshot
+            raise RuntimeError("screenshot provider must return a PIL Image.")
+
+        gui = TooltipDetector._require_pyautogui()
+        return gui.screenshot()
+
+    def detect_with_ml_model(self, screenshot: np.ndarray) -> Optional[Dict[str, Any]]:
         if self.model is None:
             return None
 
-        # The model expects RGB images, which pyautogui provides
         results = self.model(screenshot, verbose=False)
+        all_detections: List[Dict[str, Any]] = []
 
-        # Assumes one detection per screen for simplicity
         for result in results:
-            if len(result.boxes) > 0:
-                # Get the box with the highest confidence
-                best_box = sorted(result.boxes, key=lambda b: b.conf, reverse=True)[0]
-                coords = best_box.xyxy[0].cpu().numpy().astype(int)
-                x1, y1, x2, y2 = coords
-                confidence = best_box.conf[0].cpu().numpy()
-                print(f"YOLO found tooltip with confidence {confidence:.2f}")
-                return (x1, y1, x2 - x1, y2 - y1)
-        
-        return None
+            all_detections.extend(self._extract_detections(result, screenshot.shape))
 
-    async def wait_for_tooltip(self, timeout: float = 3.0) -> Optional[Tuple[int, int, int, int]]:
+        merged_detection = self._merge_detections(all_detections)
+
+        if merged_detection is not None:
+            print(
+                "YOLO found tooltip with confidence "
+                f"{merged_detection['confidence']:.2f} "
+                f"across {merged_detection['component_count']} component(s)"
+            )
+
+        return merged_detection
+
+    async def wait_for_tooltip(
+        self,
+        timeout: float = 3.0,
+        screenshot_provider: Optional[Callable[[], Image.Image]] = None,
+    ) -> Optional[Dict[str, Any]]:
         start_time = time.time()
-        
+
         while time.time() - start_time < timeout:
-            # pyautogui.screenshot() returns a PIL Image in RGB format
-            screenshot_pil = pyautogui.screenshot()
+            screenshot_pil = self._take_screenshot(screenshot_provider)
             screenshot_np = np.array(screenshot_pil)
-            
-            tooltip_region = self.detect_with_ml_model(screenshot_np)
-            
-            if tooltip_region:
-                print(f"YOLO detected tooltip at: {tooltip_region}")
-                return tooltip_region
-                
+
+            tooltip_detection = self.detect_with_ml_model(screenshot_np)
+
+            if tooltip_detection:
+                component_count = int(tooltip_detection.get("component_count", 1))
+                print(
+                    f"YOLO detected tooltip at: {tooltip_detection['bbox_xywh']} "
+                    f"(mask={tooltip_detection['has_mask']}, components={component_count})"
+                )
+                return tooltip_detection
+
             await asyncio.sleep(0.2)
-            
+
         print("YOLO Model could not detect a tooltip.")
         return None
 
-    async def capture_tooltip(self, hover_position: Tuple[int, int], wait_time: float = 0.7) -> Optional[dict]:
-        pyautogui.moveTo(hover_position[0], hover_position[1])
+    async def capture_tooltip(
+        self,
+        hover_position: Tuple[int, int],
+        wait_time: float = 0.7,
+        move_mouse_callback: Optional[Callable[[int, int], None]] = None,
+        screenshot_provider: Optional[Callable[[], Image.Image]] = None,
+    ) -> Optional[dict]:
+        if move_mouse_callback is not None:
+            move_mouse_callback(int(hover_position[0]), int(hover_position[1]))
+        else:
+            gui = self._require_pyautogui()
+            gui.moveTo(hover_position[0], hover_position[1])
+
         await asyncio.sleep(wait_time)
-        
-        tooltip_region = await self.wait_for_tooltip(timeout=3.0)
-        
-        if tooltip_region:
-            x, y, w, h = tooltip_region
-            screenshot = pyautogui.screenshot()
-            
-            tooltip_image = screenshot.crop((x, y, x + w, y + h))
-            
+
+        tooltip_detection = await self.wait_for_tooltip(
+            timeout=3.0,
+            screenshot_provider=screenshot_provider,
+        )
+
+        if tooltip_detection:
+            screenshot = self._take_screenshot(screenshot_provider)
+
+            tooltip_image = self._build_tooltip_image(
+                screenshot,
+                tooltip_detection["bbox_xywh"],
+                tooltip_detection["polygon"],
+                components=tooltip_detection.get("components"),
+            )
+
             return {
                 "image": tooltip_image,
-                "region": (x, y, w, h),
-                "hover_position": hover_position
+                "region": tooltip_detection["bbox_xywh"],
+                "hover_position": hover_position,
+                "confidence": tooltip_detection["confidence"],
+                "has_mask": tooltip_detection["has_mask"],
+                "component_count": tooltip_detection.get("component_count", 1),
             }
-            
+
         return None
 
-    async def capture_ability_tooltip(self, hover_position: Tuple[int, int], hero_id: int, ability_index: int, wait_time: float = 0.7) -> Optional[dict]:
-        return await self.capture_tooltip(hover_position, wait_time)
+    async def capture_ability_tooltip(
+        self,
+        hover_position: Tuple[int, int],
+        hero_id: int,
+        ability_index: int,
+        wait_time: float = 0.7,
+        move_mouse_callback: Optional[Callable[[int, int], None]] = None,
+        screenshot_provider: Optional[Callable[[], Image.Image]] = None,
+    ) -> Optional[dict]:
+        return await self.capture_tooltip(
+            hover_position,
+            wait_time,
+            move_mouse_callback=move_mouse_callback,
+            screenshot_provider=screenshot_provider,
+        )
 
-    async def capture_stat_tooltip(self, hover_position: Tuple[int, int], hero_id: int, stat_name: str, wait_time: float = 0.7) -> Optional[dict]:
-        return await self.capture_tooltip(hover_position, wait_time)
+    async def capture_stat_tooltip(
+        self,
+        hover_position: Tuple[int, int],
+        hero_id: int,
+        stat_name: str,
+        wait_time: float = 0.7,
+        move_mouse_callback: Optional[Callable[[int, int], None]] = None,
+        screenshot_provider: Optional[Callable[[], Image.Image]] = None,
+    ) -> Optional[dict]:
+        return await self.capture_tooltip(
+            hover_position,
+            wait_time,
+            move_mouse_callback=move_mouse_callback,
+            screenshot_provider=screenshot_provider,
+        )

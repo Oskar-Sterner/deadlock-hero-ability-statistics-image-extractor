@@ -424,6 +424,23 @@ button:disabled {
   margin-bottom: 2rem;
 }
 
+.runtime-summary {
+  margin-bottom: 1.5rem;
+  padding: 1rem 1.25rem;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 10px;
+}
+
+.runtime-summary p {
+  margin-bottom: 0.35rem;
+  color: #cbd5e1;
+}
+
+.runtime-summary p:last-child {
+  margin-bottom: 0;
+}
+
 .form-group {
   margin-bottom: 1.5rem;
 }
@@ -435,7 +452,8 @@ button:disabled {
   color: #f1f5f9;
 }
 
-.form-group input {
+.form-group input,
+.form-group select {
   width: 100%;
   padding: 0.75rem;
   border: 2px solid rgba(148, 163, 184, 0.2);
@@ -446,9 +464,16 @@ button:disabled {
   color: #e2e8f0;
 }
 
-.form-group input:focus {
+.form-group input:focus,
+.form-group select:focus {
   outline: none;
   border-color: #60a5fa;
+}
+
+.form-row-two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
 }
 
 .form-group small {
@@ -535,6 +560,15 @@ button:disabled {
   border-bottom: none;
 }
 
+.info-section code {
+  font-family: "Courier New", monospace;
+  font-size: 0.85rem;
+  background: rgba(15, 23, 42, 0.7);
+  padding: 0.15rem 0.35rem;
+  border-radius: 4px;
+  word-break: break-all;
+}
+
 #log-container::-webkit-scrollbar {
   width: 8px;
 }
@@ -573,5 +607,9 @@ button:disabled {
   .checkbox-group {
     flex-direction: row;
     flex-wrap: wrap;
+  }
+
+  .form-row-two {
+    grid-template-columns: 1fr;
   }
 }
